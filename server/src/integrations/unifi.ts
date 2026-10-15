@@ -58,14 +58,18 @@ async function networkPoll(ctx: Ctx): Promise<PollResult> {
       txBps: up.txRateBps ?? null, rxBps: up.rxRateBps ?? null
     };
   }
+  // PDUs are Network devices, so the PDU tile can read them from this same connection.
+  const pdus = devicesDoc.status === "fulfilled" ? await readPdus(ctx, site, devices).catch(() => []) : [];
   const data = {
     version: info?.applicationVersion ?? null,
+    pdus,
     site: { id: String(site.id), name: String(site.name ?? "Default") },
     devices: devicesDoc.status === "fulfilled" ? { total: devices.length, online: devices.length - problem.length, offline: problem.length, problems: problem.slice(0, 6).map(d => ({ name: String(d.name ?? d.model ?? "Device"), model: String(d.model ?? ""), state: String(d.state) })) } : null,
     clients: totalClients === null ? null : { total: totalClients, wired: exact ? clients.filter(c => typeOf(c) === "WIRED").length : null, wireless: exact ? clients.filter(c => typeOf(c) === "WIRELESS").length : null },
     gateway
   };
   const metrics: Record<string, number> = {};
+  for (const [k, v] of Object.entries(pduMetrics(pdus))) metrics[`pdu_${k}`] = v;
   if (data.clients) metrics.clients = data.clients.total;
   if (data.devices) { metrics.devices_total = data.devices.total; metrics.devices_offline = data.devices.offline; }
   if (gateway) {
@@ -141,11 +145,7 @@ function totalWatts(...docs: any[]): number | null {
   return null;
 }
 
-async function pduPoll(ctx: Ctx): Promise<PollResult> {
-  const sites = items(await hinted("UniFi Network", () => get(ctx, `${NET}/sites`, { limit: 200 })));
-  const site = sites.find(s => s?.internalReference === "default") ?? sites[0];
-  if (!site?.id) throw new IntegrationError("UniFi Network returned no sites");
-  const devices = items(await get(ctx, `${NET}/sites/${site.id}/devices`, { limit: 200 }));
+async function readPdus(ctx: Ctx, site: any, devices: any[]) {
   const found = devices.filter(d => PDU_MODEL.test(`${d?.model ?? ""} ${d?.type ?? ""}`)).slice(0, 4);
   const siteName = encodeURIComponent(String(site.internalReference ?? "default"));
   const pdus = [];
@@ -165,11 +165,24 @@ async function pduPoll(ctx: Ctx): Promise<PollResult> {
       source: classic?.outlet_table ? "classic" : outlets.length ? "integration" : "none", outlets
     });
   }
+  return pdus;
+}
+
+function pduMetrics(pdus: Array<{ totalW: number | null; outlets: Outlet[] }>): Record<string, number> {
   const first = pdus[0];
   const metrics: Record<string, number> = {};
   if (first?.totalW != null) metrics.power_w = first.totalW;
   if (first?.outlets.length) metrics.outlets_on = first.outlets.filter(o => o.on).length;
-  return { data: { site: String(site.name ?? "Default"), pdus }, metrics };
+  return metrics;
+}
+
+async function pduPoll(ctx: Ctx): Promise<PollResult> {
+  const sites = items(await hinted("UniFi Network", () => get(ctx, `${NET}/sites`, { limit: 200 })));
+  const site = sites.find(s => s?.internalReference === "default") ?? sites[0];
+  if (!site?.id) throw new IntegrationError("UniFi Network returned no sites");
+  const devices = items(await get(ctx, `${NET}/sites/${site.id}/devices`, { limit: 200 }));
+  const pdus = await readPdus(ctx, site, devices);
+  return { data: { site: String(site.name ?? "Default"), pdus }, metrics: pduMetrics(pdus) };
 }
 
 // ---------------------------------------------------------------- Probe (UNAS, PDU and anything else without a documented API)

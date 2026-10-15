@@ -22,7 +22,7 @@ export const WIDGETS: WidgetDef[] = [
   { type: "sitegateway", label: "Site Gateway", description: "Gateway, sites, proxies, certificates, alerts", size: [3, 3], needs: "sitegateway", component: SiteGateway },
   { type: "unifi-network", label: "UniFi Network", description: "Clients, devices, gateway load and WAN rate", size: [3, 3], needs: "unifi-network", component: UnifiNetwork },
   { type: "unifi-protect", label: "UniFi Protect", description: "Cameras connected or offline", size: [3, 2], needs: "unifi-protect", component: UnifiProtect },
-  { type: "unifi-pdu", label: "UniFi PDU", description: "Power draw and outlet states", size: [3, 3], needs: "unifi-pdu", component: Pdu },
+  { type: "unifi-pdu", label: "UniFi PDU", description: "Power draw and outlet states", size: [3, 3], needs: ["unifi-network", "unifi-pdu"], component: Pdu },
   { type: "unraid", label: "Unraid", description: "Array, disks, Docker, VMs, CPU and memory", size: [3, 4], needs: "unraid", component: Unraid },
   { type: "zimaos", label: "ZimaOS", description: "CPU, memory, storage, apps, updates", size: [3, 3], needs: "zimaos", component: Zima },
   { type: "camera", label: "Camera", description: "Live camera feed through go2rtc", size: [2, 2], component: Camera },

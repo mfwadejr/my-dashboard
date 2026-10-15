@@ -65,6 +65,8 @@ test("UniFi Network: clients, devices, gateway stats", async () => {
   assert.deepEqual(d.clients, { total: 3, wired: 1, wireless: 2 });
   assert.equal(d.devices.total, 4); assert.equal(d.devices.offline, 1); assert.equal(d.devices.problems[0].name, "Garage AP");
   assert.equal(d.gateway.name, "Dream Machine"); assert.equal(d.gateway.cpuPct, 12.5); assert.equal(d.gateway.rxBps, 9_000_000);
+  assert.equal(d.pdus.length, 1, "the PDU tile can read PDUs from a plain UniFi Network connection");
+  assert.deepEqual([d.pdus[0].name, d.pdus[0].totalW, d.pdus[0].outlets.length], ["Rack PDU", 60, 3]);
   assert.ok(unifi.hits.every(h => !h.includes(KEY)));
   const series = (await call("GET", `/api/metrics/${id}/clients?minutes=60`)).json();
   assert.equal(series[0][1], 3);

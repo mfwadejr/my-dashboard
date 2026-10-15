@@ -21,6 +21,6 @@ export interface WidgetDef {
   description: string;
   size: [number, number];
   /** Integration type this tile reads from, if any. */
-  needs?: string;
+  needs?: string | string[];
   component: (props: WidgetProps) => ReactElement | null;
 }

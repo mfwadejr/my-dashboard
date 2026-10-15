@@ -13,7 +13,7 @@ export function TileSettings({ tile, integrations, onChange, onPickIcon, onOpenC
 }) {
   const def = WIDGET_BY_TYPE[tile.type];
   const [items, setItems] = useState<LauncherItem[]>((tile.config.items ?? []) as LauncherItem[]);
-  const options = integrations.filter(i => i.type === def?.needs);
+  const options = integrations.filter(i => [def?.needs].flat().includes(i.type));
   const saveItems = (next: LauncherItem[]) => { setItems(next); onChange({ items: next }); };
   const patchItem = (id: string, patch: Partial<LauncherItem>) => saveItems(items.map(i => (i.id === id ? { ...i, ...patch } : i)));
 

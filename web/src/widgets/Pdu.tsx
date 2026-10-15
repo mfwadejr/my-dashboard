@@ -5,7 +5,7 @@ import { Shell, uptime } from "./Shell";
 export function Pdu(props: WidgetProps) {
   return (
     <Shell props={props} label="UniFi PDU">{d => (
-      d.pdus.length === 0 ? <Empty>No PDU is adopted in this site.</Empty> :
+      !d.pdus ? <Empty>Waiting for the next refresh…</Empty> : d.pdus.length === 0 ? <Empty>No PDU is adopted in this site.</Empty> :
       <div className="list">
         {d.pdus.map((p: any) => (
           <div key={p.id} className="pdu">
