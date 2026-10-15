@@ -50,7 +50,7 @@ export function Pdu(props: WidgetProps) {
             {props.tile.h >= 3 && (
               <div className="outlets">
                 {p.outlets.map((o: any) => (
-                  <div key={o.index} className={`outlet ${level(o)}`} title={o.voltageV ? `${o.voltageV} V · ${o.currentA ?? "–"} A` : undefined}>
+                  <div key={o.index} className={`outlet ${level(o)}`} title={o.powerW === null && o.raw ? `No watt reading. UniFi sent: ${o.raw}` : o.voltageV ? `${o.voltageV} V · ${o.currentA ?? "–"} A` : undefined}>
                     <span className="sock"><Socket usb={isUsb(o)} /></span>
                     <span className="trunc">{o.name}</span>
                     <span className="sub">{o.powerW !== null ? `${o.powerW < 10 ? o.powerW.toFixed(1) : Math.round(o.powerW)} W` : o.on === false ? "off" : ""}</span>

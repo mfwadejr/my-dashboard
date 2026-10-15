@@ -116,7 +116,7 @@ const firstNum = (...vals: unknown[]): number | null => {
   return null;
 };
 
-export interface Outlet { index: number; name: string; on: boolean | null; powerW: number | null; currentA: number | null; voltageV: number | null; metered: boolean }
+export interface Outlet { index: number; name: string; on: boolean | null; powerW: number | null; currentA: number | null; voltageV: number | null; metered: boolean; raw?: string }
 
 /**
  * Outlets come from the classic `outlet_table` when the console allows it. Otherwise this looks for any list under a key
@@ -135,6 +135,7 @@ export function extractOutlets(...docs: any[]): Outlet[] {
         name: String(o.name ?? o.label ?? `Outlet ${i + 1}`),
         on: truthy(o.relay_state ?? o.relayState ?? o.state ?? o.on ?? o.isOn ?? o.enabled),
         powerW, currentA: firstNum(o.outlet_current, o.current, o.currentA), voltageV: firstNum(o.outlet_voltage, o.voltage, o.voltageV),
+        raw: Object.entries(o).filter(([, v]) => ["number", "string", "boolean"].includes(typeof v)).slice(0, 14).map(([k, v]) => `${k}=${String(v).slice(0, 24)}`).join(", "),
         metered: powerW !== null || (caps !== null && (caps & 2) === 2)
       };
     });
