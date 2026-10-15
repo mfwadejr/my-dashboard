@@ -8,7 +8,7 @@ export function Gauge({ pct, label, detail, warn = 70, bad = 90, hot }: { pct: n
   const start = -135, end = 135;
   return (
     <div className="gauge">
-      <svg viewBox="0 0 120 120" role="img" aria-label={`${label} ${v === null ? "unavailable" : Math.round(v) + "%"}`}>
+      <svg viewBox="8 6 104 96" role="img" aria-label={`${label} ${v === null ? "unavailable" : Math.round(v) + "%"}`}>
         <path d={arc(46, start, end)} fill="none" stroke="var(--panel2)" strokeWidth="11" strokeLinecap="round" />
         {v !== null && v > 0.5 && <path d={arc(46, start, start + (end - start) * (v / 100))} fill="none" stroke={color} strokeWidth="11" strokeLinecap="round" />}
         <text x="60" y="63" textAnchor="middle" className="gv">{v === null ? "–" : Math.round(v)}{v !== null && <tspan className="gu" dx="1">%</tspan>}</text>
