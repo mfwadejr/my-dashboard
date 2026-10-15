@@ -4,6 +4,7 @@ import type { DB } from "../db.js";
 import type { Hub } from "../hub.js";
 import { readSeries, type Poller } from "../poller.js";
 import type { Store } from "../store.js";
+import type { LiveSampler } from "../live.js";
 import { IntegrationError, normalizeUrl } from "../integrations/http.js";
 import { INTEGRATION_TYPES, publicTypeInfo } from "../integrations/registry.js";
 
@@ -19,7 +20,7 @@ function parseInput(body: any, existing?: { type: string }) {
   return { type, name, url, apiKey, intervalSeconds, insecureTls, enabled: body?.enabled === undefined ? true : Boolean(body.enabled) };
 }
 
-export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, poller: Poller, hub: Hub, requireAuth: preHandlerAsyncHookHandler): void {
+export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, poller: Poller, hub: Hub, requireAuth: preHandlerAsyncHookHandler, live: LiveSampler): void {
   app.get("/api/integration-types", async () => publicTypeInfo());
 
   // Viewers see names and status only. Addresses are shown to the signed-in admin.
@@ -106,6 +107,14 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
     const { id, key } = request.params as { id: string; key: string };
     const minutes = Math.max(5, Math.min(14 * 1440, Number((request.query as any)?.minutes ?? 360) || 360));
     return readSeries(db, id, key, minutes);
+  });
+
+  // Fast samples for live graphs. Viewers can read them, like the rest of the tile data.
+  app.get("/api/integrations/:id/live", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const since = Number((request.query as any)?.since ?? 0) || 0;
+    const out = live.read(id, since);
+    return out ?? reply.code(404).send({ error: "This connection has no live data" });
   });
 
   app.get("/api/events", async request => {

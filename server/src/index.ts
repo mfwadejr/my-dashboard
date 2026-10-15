@@ -14,6 +14,7 @@ import { Go2rtc } from "./go2rtc.js";
 import { Hub } from "./hub.js";
 import { Icons } from "./icons.js";
 import { Poller } from "./poller.js";
+import { LiveSampler } from "./live.js";
 import { Store } from "./store.js";
 import { authRoutes } from "./routes/auth.js";
 import { cameraRoutes } from "./routes/cameras.js";
@@ -27,6 +28,7 @@ export async function buildApp(config: Config) {
   const store = new Store(db, box);
   const hub = new Hub();
   const poller = new Poller(db, store, hub);
+  const live = new LiveSampler(store);
   const go2rtc = new Go2rtc(config.go2rtcUrl, store, db);
   const icons = new Icons(config.dataDir);
   const requireAuth = makeRequireAuth(db);
@@ -53,7 +55,7 @@ export async function buildApp(config: Config) {
   app.get("/api/health", async () => ({ ok: true, version: process.env.APP_VERSION ?? "dev" }));
   authRoutes(app, db);
   dashboardRoutes(app, db, store, go2rtc, requireAuth);
-  integrationRoutes(app, db, store, poller, hub, requireAuth);
+  integrationRoutes(app, db, store, poller, hub, requireAuth, live);
   iconRoutes(app, icons, requireAuth);
   await cameraRoutes(app, store, go2rtc, config.go2rtcUrl, requireAuth);
 
@@ -66,7 +68,7 @@ export async function buildApp(config: Config) {
   }
 
   if (config.startPollers) { poller.start(); go2rtc.start(); }
-  app.addHook("onClose", async () => { poller.stop(); go2rtc.stop(); hub.close(); db.close(); });
+  app.addHook("onClose", async () => { poller.stop(); live.stop(); go2rtc.stop(); hub.close(); db.close(); });
   return { app, db, store, poller, go2rtc };
 }
 

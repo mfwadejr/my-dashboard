@@ -17,6 +17,8 @@ export interface IntegrationType {
   keyLabel: string;
   test(ctx: Ctx): Promise<TestResult>;
   poll(ctx: Ctx): Promise<PollResult>;
+  /** Fast sampling for live graphs. Runs only while a browser keeps asking for it. */
+  live?: { intervalMs: number; sample(ctx: Ctx): Promise<Record<string, number | null>> };
   /** Buttons on a tile that change something in the app (pause the queue, and so on). */
   actions?: Record<string, (ctx: Ctx, args: Record<string, unknown>) => Promise<unknown>>;
 }

@@ -189,3 +189,20 @@ test("ZimaOS network: rates come from counter deltas, virtual ports are skipped,
   assert.equal(reset.upBps, null, "a counter that went backwards (reboot) gives no rate instead of a negative one");
   assert.equal(networkRates("none", { net: [] }), null);
 });
+
+test("Live samples: sampling starts on request, returns rates, only for types that support it", async () => {
+  const z = await mockZima();
+  try {
+    const id = await create({ type: "zimaos", name: "Zima live", url: z.url, apiKey: `${ZIMA_USER}:${ZIMA_PASS}` });
+    const first = (await call("GET", `/api/integrations/${id}/live?since=0`)).json();
+    assert.equal(first.intervalMs, 2000);
+    await new Promise(r => setTimeout(r, 4600));
+    const next = (await call("GET", `/api/integrations/${id}/live?since=0`)).json();
+    assert.ok(next.samples.length >= 2, "samples were collected in the background");
+    assert.equal(typeof next.samples.at(-1).v.up, "number", "after two readings there is a rate");
+    const none = (await call("GET", `/api/integrations/${id}/live?since=${next.samples.at(-1).t}`)).json();
+    assert.ok(none.samples.length <= 1, "since returns only newer samples");
+    const nid = await create({ type: "unifi-network", name: "No live", url: unifi.url, apiKey: KEY });
+    assert.equal((await call("GET", `/api/integrations/${nid}/live`)).statusCode, 404);
+  } finally { await z.close(); }
+});

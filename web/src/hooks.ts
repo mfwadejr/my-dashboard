@@ -113,3 +113,27 @@ export function usePref<T extends string>(key: string, fallback: T): [T, (v: T) 
   const [value, setValue] = useState<T>(() => { try { return (localStorage.getItem(key) as T) || fallback; } catch { return fallback; } });
   return [value, (v: T) => { setValue(v); try { localStorage.setItem(key, v); } catch { /* private mode */ } }];
 }
+
+export interface LivePoint { t: number; v: Record<string, number | null> }
+
+/** Fast samples from a connection's live endpoint, kept for the last `keep` points. Only polls while mounted, enabled and the tab is visible. */
+export function useFastSamples(instanceId: string | undefined, enabled: boolean, keep = 60) {
+  const [points, setPoints] = useState<LivePoint[]>([]);
+  useEffect(() => {
+    if (!instanceId || !enabled) return;
+    let stop = false, since = 0, timer = 0;
+    const tick = async () => {
+      if (document.hidden) { timer = window.setTimeout(tick, 2000); return; }
+      let wait = 2000;
+      try {
+        const r = await api.get<{ intervalMs: number; samples: LivePoint[] }>(`/api/integrations/${instanceId}/live?since=${since}`);
+        wait = Math.max(1000, r.intervalMs);
+        if (!stop && r.samples.length) { since = r.samples[r.samples.length - 1].t; setPoints(prev => [...prev, ...r.samples].slice(-keep)); }
+      } catch { wait = 5000; }
+      if (!stop) timer = window.setTimeout(tick, wait);
+    };
+    void tick();
+    return () => { stop = true; window.clearTimeout(timer); };
+  }, [instanceId, enabled, keep]);
+  return points;
+}

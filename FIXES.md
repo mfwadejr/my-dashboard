@@ -11,7 +11,7 @@ Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 
 ## Done
 
-- ZimaOS tile: Network section (upload and download speed with history graph) from ZimaOS's interface counters.
+- ZimaOS tile: live Network graph like ZimaOS's own (2-second samples, grid, smooth filled curves). Sampling runs only while a browser has the tile open.
 - ZimaOS tile: CPU and RAM shown as arc gauges like ZimaOS's own System widget (CPU shows power and temperature, RAM shows used of total); unlabeled memory bar removed.
 - ZimaOS tile: choose and order sections; app list, containers and VMs (container/VM endpoints are best-effort until checked on a real system).
 - UniFi Network tile: choose and order sections (summary, gateway, WAN links with per-WAN rates, speed test, access points, Wi-Fi, VLANs, all devices, offline devices).

@@ -4,7 +4,7 @@ import { Bar, Empty, Pill } from "./common";
 import { Gauge } from "./Gauge";
 import { Shell, bytes, pct } from "./Shell";
 import { resolveSections } from "./sections";
-import { useSeries } from "../hooks";
+import { useFastSamples } from "../hooks";
 
 function StateList({ rows, none }: { rows: Array<{ name: string; sub?: string | null; state: string | null; running: boolean; hint?: string; id?: string | null }>; none: string }) {
   if (rows.length === 0) return <Empty>{none}</Empty>;
@@ -18,21 +18,62 @@ function StateList({ rows, none }: { rows: Array<{ name: string; sub?: string | 
   );
 }
 
-const speed = (bps: number | null | undefined) => (typeof bps !== "number" ? "–" : bps >= 1e6 ? `${(bps / 1e6).toFixed(1)} MB/s` : `${Math.round(bps / 1e3)} kB/s`);
+const fmt = (bps: number | null | undefined, unit: "kB" | "MB") => (typeof bps !== "number" ? "–" : unit === "MB" ? `${(bps / 1e6).toFixed(1)} MB/s` : `${Math.round(bps / 1e3)} kB/s`);
 
-/** Upload and download on one shared scale, drawn from the connection's recorded history. */
+/** A 1-2-5 step so the grid lines land on round numbers, like ZimaOS's own graph. */
+function niceScale(max: number): { top: number; step: number } {
+  const raw = Math.max(max, 1) / 3, pow = 10 ** Math.floor(Math.log10(raw));
+  const step = ([1, 2, 5, 10].find(m => m * pow >= raw) ?? 10) * pow;
+  return { top: step * 3, step };
+}
+
+/** Smooth curve through the points (Catmull-Rom converted to cubic segments). */
+function smooth(pts: Array<[number, number]>, lo = -Infinity, hi = Infinity): string {
+  const c = (y: number) => Math.max(lo, Math.min(hi, y));
+  if (pts.length < 2) return "";
+  let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] ?? p2;
+    d += `C${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(1)} ${c(p1[1] + (p2[1] - p0[1]) / 6).toFixed(1)} ${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(1)} ${c(p2[1] - (p3[1] - p1[1]) / 6).toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+  }
+  return d;
+}
+
+/** Live upload and download, sampled every couple of seconds while this tile is on screen. */
 function Network({ net, integrationId, tall }: { net: any; integrationId?: string; tall: boolean }) {
-  const up = useSeries(integrationId, "net_up_bps", 60), down = useSeries(integrationId, "net_down_bps", 60);
-  const h = tall ? 64 : 40;
-  const all = [...up, ...down];
-  const x0 = Math.min(...all.map(p => p[0])), x1 = Math.max(...all.map(p => p[0])), y1 = Math.max(...all.map(p => p[1]), 1);
-  const line = (pts: Array<[number, number]>) => pts.map(([x, y]) => `${(((x - x0) / (x1 - x0 || 1)) * 200).toFixed(1)},${(h - (y / y1) * (h - 4) - 2).toFixed(1)}`).join(" ");
+  return <NetChart net={net} points={useFastSamples(integrationId, true, 60)} tall={tall} />;
+}
+
+export function NetChart({ net, points, tall }: { net: any; points: Array<{ t: number; v: Record<string, number | null> }>; tall: boolean }) {
+  const rows = points.filter(p => typeof p.v.up === "number" && typeof p.v.down === "number");
+  const last = rows[rows.length - 1];
+  const upNow = last ? last.v.up : net.upBps, downNow = last ? last.v.down : net.downBps;
+  const peak = Math.max(...rows.map(r => Math.max(r.v.up as number, r.v.down as number)), 0);
+  const unit: "kB" | "MB" = peak >= 1e6 ? "MB" : "kB";
+  const div = unit === "MB" ? 1e6 : 1e3;
+  const { top, step } = niceScale(peak / div);
+  const W = 400, H = tall ? 150 : 100, L = 34, B = 6, T = 8, R = 4;
+  const offset = 60 - rows.length;
+  const px = (i: number) => L + ((i + offset) / 59) * (W - L - R);
+  const py = (v: number) => T + (1 - Math.min(v / div, top) / top) * (H - T - B);
+  const series = (key: "up" | "down") => rows.map((r, i) => [px(i), py(r.v[key] as number)] as [number, number]);
+  const area = (pts: Array<[number, number]>) => `${smooth(pts, T, H - B)}L${pts[pts.length - 1][0].toFixed(1)} ${H - B}L${pts[0][0].toFixed(1)} ${H - B}Z`;
+  const up = series("up"), down = series("down");
   return (
     <div className="net">
-      <div className="row sp"><span className="sub">Network · {net.iface}</span><span className="sub"><span style={{ color: "var(--accent)" }}>↑</span> {speed(net.upBps)} · <span style={{ color: "var(--ok)" }}>↓</span> {speed(net.downBps)}</span></div>
-      {up.length > 1 && down.length > 1
-        ? <svg className="spark" viewBox={`0 0 200 ${h}`} preserveAspectRatio="none" style={{ height: h }}><polyline points={line(down)} fill="none" stroke="var(--ok)" strokeWidth="1.6" vectorEffect="non-scaling-stroke" /><polyline points={line(up)} fill="none" stroke="var(--accent)" strokeWidth="1.6" vectorEffect="non-scaling-stroke" /></svg>
-        : <div className="sparkline-empty" style={{ height: h }}>collecting history…</div>}
+      <div className="row sp"><span className="sub">Network</span><b>{net.iface}</b></div>
+      {rows.length > 1 ? (
+        <svg className="netchart" viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto" }} role="img" aria-label="Live network speed">
+          {[0, 1, 2, 3].map(i => { const v = step * i, y = py(v * div); return <g key={i}><line x1={L} x2={W - R} y1={y} y2={y} stroke="var(--line)" strokeWidth="1" /><text x={L - 6} y={y + 4} textAnchor="end" fontSize="11" fill="var(--mute)">{Math.round(v * 10) / 10}</text></g>; })}
+          <path d={area(down)} fill="var(--ok)" opacity=".18" /><path d={smooth(down, T, H - B)} fill="none" stroke="var(--ok)" strokeWidth="1.8" />
+          <path d={area(up)} fill="var(--accent)" opacity=".18" /><path d={smooth(up, T, H - B)} fill="none" stroke="var(--accent)" strokeWidth="1.8" />
+        </svg>
+      ) : <div className="sparkline-empty" style={{ height: tall ? 120 : 80 }}>collecting live data…</div>}
+      <div className="row" style={{ gap: 14 }}>
+        <span className="sub">{unit}</span>
+        <span className="sub"><span style={{ color: "var(--accent)" }}>↑</span> {fmt(upNow, unit)}</span>
+        <span className="sub"><span style={{ color: "var(--ok)" }}>↓</span> {fmt(downNow, unit)}</span>
+      </div>
     </div>
   );
 }

@@ -207,5 +207,13 @@ export const zimaos: IntegrationType = {
   description: "CPU, memory, temperature, storage, installed apps and update status",
   urlHint: "http://192.168.1.20",
   keyLabel: "ZimaOS login as username:password (use a dedicated user if you can)",
-  test, poll
+  test, poll,
+  // Network speed changes second to second, so the live graph samples the utilization endpoint every 2 seconds while a browser watches.
+  live: {
+    intervalMs: 2000,
+    async sample(ctx) {
+      const net = networkRates(`${ctx.url}|${ctx.apiKey}|live`, await call(ctx, PATHS.utilization));
+      return { up: net?.upBps ?? null, down: net?.downBps ?? null };
+    }
+  }
 };
