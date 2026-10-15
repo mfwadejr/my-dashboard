@@ -159,6 +159,20 @@ function powerFieldHint(classic: any): string {
   return `device: ${dev.join(",")} | outlet: ${first.join(",")}`;
 }
 
+function inputVoltage(classic: any, outlets: Outlet[]): number | null {
+  const v = firstNum(classic?.ac_input_voltage, classic?.input_voltage, classic?.voltage, classic?.outlet_ac_voltage);
+  if (v !== null) return v;
+  const vs = outlets.map(o => o.voltageV).filter((x): x is number => x !== null && x > 0);
+  return vs.length ? vs.reduce((a, b) => a + b, 0) / vs.length : null;
+}
+
+function totalCurrent(classic: any, outlets: Outlet[]): number | null {
+  const v = firstNum(classic?.ac_input_current, classic?.input_current, classic?.total_current);
+  if (v !== null) return v;
+  const cs = outlets.map(o => o.currentA).filter((x): x is number => x !== null);
+  return cs.length ? cs.reduce((a, b) => a + b, 0) : null;
+}
+
 async function readPdus(ctx: Ctx, site: any, devices: any[]) {
   const found = devices.filter(d => PDU_MODEL.test(`${d?.model ?? ""} ${d?.type ?? ""}`)).slice(0, 4);
   const siteName = encodeURIComponent(String(site.internalReference ?? "default"));
@@ -177,6 +191,7 @@ async function readPdus(ctx: Ctx, site: any, devices: any[]) {
       id: String(d.id), name: String(d.name ?? d.model), model: String(d.model ?? ""), state: String(d.state ?? ""),
       uptimeSec: firstNum(stats?.uptimeSec), totalW: watts, budgetW: budget,
       source: classic?.outlet_table ? "classic" : outlets.length ? "integration" : "none", outlets,
+      voltageV: inputVoltage(classic, outlets), currentA: totalCurrent(classic, outlets),
       fields: powerFieldHint(classic)
     });
   }

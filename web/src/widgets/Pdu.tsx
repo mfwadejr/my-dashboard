@@ -14,6 +14,10 @@ export function Pdu(props: WidgetProps) {
               <div className="big" style={{ fontSize: 26 }}>{p.totalW !== null ? `${Math.round(p.totalW)} W` : "–"}</div>
               <span className="sub">{p.budgetW ? `of ${Math.round(p.budgetW)} W` : p.uptimeSec ? `up ${uptime(p.uptimeSec)}` : ""}</span>
             </div>
+            {props.tile.h >= 2 && (p.voltageV !== null || p.currentA !== null) && (
+              <div className="sub">{[p.voltageV !== null && `${Math.round(p.voltageV)} V`, p.currentA !== null && `${p.currentA.toFixed(1)} A`,
+                p.outlets.length > 0 && `${p.outlets.filter((o: any) => o.on).length}/${p.outlets.length} on`, p.uptimeSec && p.budgetW && `up ${uptime(p.uptimeSec)}`].filter(Boolean).join(" · ")}</div>
+            )}
             {p.budgetW && p.totalW !== null && <Bar value={p.totalW / p.budgetW} tone={p.totalW / p.budgetW > 0.8 ? "warn" : undefined} />}
             {p.totalW === null && p.fields && <div className="sub" style={{ wordBreak: "break-word" }}>No watt reading found. UniFi sent: {p.fields}</div>}
             {props.tile.h >= 3 && (
