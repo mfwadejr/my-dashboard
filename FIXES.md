@@ -9,5 +9,6 @@ Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 
 ## Done
 
+- UniFi Network tile: choose and order sections (summary, gateway, WAN links with per-WAN rates, speed test, access points, Wi-Fi, VLANs, all devices, offline devices).
 - PDU: USB outlets show "Not metered by this PDU" on hover (they report `outlet_caps=1`, no power data).
 - PDU: watts, voltage, current, outlet icons colored by state and load.

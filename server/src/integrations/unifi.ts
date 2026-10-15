@@ -27,14 +27,54 @@ async function networkTest(ctx: Ctx): Promise<TestResult> {
   return { ok: true, message: `Connected to UniFi Network${version ? " " + version : ""}`, version };
 }
 
+
+const bps = (bytesPerSec: unknown): number | null => { const n = firstNum(bytesPerSec); return n === null ? null : n * 8; };
+
+/** Per-WAN link state and throughput from the gateway's classic device record (wan1, wan2, ...). Optional: an API key may not be accepted there. */
+export function extractWans(classic: any): Array<{ name: string; ifname: string; up: boolean | null; ip: string; rxBps: number | null; txBps: number | null; speedMbps: number | null; type: string }> {
+  if (!classic || typeof classic !== "object") return [];
+  return Object.keys(classic).filter(k => /^wan\d*$/i.test(k) && classic[k] && typeof classic[k] === "object").sort().map(k => {
+    const w = classic[k];
+    return {
+      name: String(w.name ?? k.toUpperCase()), ifname: String(w.ifname ?? ""), up: w.up === undefined ? null : truthy(w.up), ip: String(w.ip ?? ""),
+      rxBps: bps(w["rx_bytes-r"]), txBps: bps(w["tx_bytes-r"]), speedMbps: firstNum(w.speed), type: String(w.type ?? "")
+    };
+  });
+}
+
+function extractSpeedtest(classic: any) {
+  const t = classic?.["speedtest-status"];
+  if (!t || typeof t !== "object") return null;
+  const down = firstNum(t.xput_download), up = firstNum(t.xput_upload);
+  if (down === null && up === null) return null;
+  return { downMbps: down, upMbps: up, latencyMs: firstNum(t.latency), at: firstNum(t.rundate) };
+}
+
+function extractTemp(classic: any): number | null {
+  const direct = firstNum(classic?.general_temperature, classic?.temperature);
+  if (direct !== null) return direct;
+  const list = Array.isArray(classic?.temperatures) ? classic.temperatures : [];
+  const v = list.map((t: any) => firstNum(t?.value)).filter((x: number | null): x is number => x !== null);
+  return v.length ? Math.max(...v) : null;
+}
+
+const classicDevice = (ctx: Ctx, siteName: string, mac: unknown) =>
+  mac ? get(ctx, `/proxy/network/api/s/${siteName}/stat/device/${encodeURIComponent(String(mac))}`).then(r => items(r?.data ? r.data : r)[0] ?? null).catch(() => null) : Promise.resolve(null);
+
+const AP_MODEL = /^(U6|U7|UAP|UWB|E7|UK|U-?LR|UBB)/i;
+const isAp = (d: any) => (Array.isArray(d?.features) ? d.features.some((f: any) => /access.?point/i.test(String(f))) : AP_MODEL.test(String(d?.model ?? "")));
+
 async function networkPoll(ctx: Ctx): Promise<PollResult> {
   const info = await hinted("UniFi Network", () => get(ctx, `${NET}/info`));
   const sites = items(await get(ctx, `${NET}/sites`, { limit: 200 }));
   const site = sites.find(s => s?.internalReference === "default") ?? sites[0];
   if (!site?.id) throw new IntegrationError("UniFi Network returned no sites");
-  const [devicesDoc, clientsDoc] = await Promise.allSettled([
+  const [devicesDoc, clientsDoc, networksDoc, wifiDoc, wansDoc] = await Promise.allSettled([
     get(ctx, `${NET}/sites/${site.id}/devices`, { limit: 200 }),
-    get(ctx, `${NET}/sites/${site.id}/clients`, { limit: 200 })
+    get(ctx, `${NET}/sites/${site.id}/clients`, { limit: 200 }),
+    get(ctx, `${NET}/sites/${site.id}/networks`, { limit: 200 }),
+    get(ctx, `${NET}/sites/${site.id}/wifi/broadcasts`, { limit: 200 }),
+    get(ctx, `${NET}/sites/${site.id}/wans`, { limit: 50 })
   ]);
   const devices = items(settled(devicesDoc));
   const okStates = new Set(["ONLINE", "UPDATING", "GETTING_READY", "ADOPTING"]);
@@ -49,15 +89,31 @@ async function networkPoll(ctx: Ctx): Promise<PollResult> {
   // Gateway load and WAN rate come from the gateway's latest statistics. Missing fields are simply left out.
   const gw = devices.find(d => GATEWAY_MODEL.test(String(d?.model ?? "")) || /gateway/i.test(String(d?.type ?? "")));
   let gateway: any = null;
+  let wans: any[] = [];
+  let speedtest: any = null;
+  const siteName = encodeURIComponent(String(site.internalReference ?? "default"));
   if (gw?.id) {
     const stats = await get(ctx, `${NET}/sites/${site.id}/devices/${gw.id}/statistics/latest`).catch(() => null);
     const up = stats?.uplink ?? {};
     gateway = {
       name: String(gw.name ?? gw.model ?? "Gateway"), model: String(gw.model ?? ""),
       cpuPct: stats?.cpuUtilizationPct ?? null, memPct: stats?.memoryUtilizationPct ?? null, uptimeSec: stats?.uptimeSec ?? null,
-      txBps: up.txRateBps ?? null, rxBps: up.rxRateBps ?? null
+      txBps: up.txRateBps ?? null, rxBps: up.rxRateBps ?? null,
+      load1: firstNum(stats?.loadAverage1Min), tempC: null as number | null
     };
+    const classicGw = await classicDevice(ctx, siteName, gw.macAddress ?? gw.mac);
+    wans = extractWans(classicGw);
+    speedtest = extractSpeedtest(classicGw);
+    gateway.tempC = extractTemp(classicGw);
   }
+  // When the classic record is not available, the Integration API still names the WANs even though it has no per-WAN rates.
+  if (!wans.length) wans = items(settled(wansDoc)).map((w: any) => ({ name: String(w?.name ?? w?.id ?? "WAN"), ifname: "", up: null, ip: "", rxBps: null, txBps: null, speedMbps: null, type: "" }));
+  const apDevices = devices.filter(isAp);
+  const byAp = new Map<string, number>();
+  if (cdoc && exact) for (const c of clients) if (typeOf(c) === "WIRELESS" && c?.uplinkDeviceId) byAp.set(String(c.uplinkDeviceId), (byAp.get(String(c.uplinkDeviceId)) ?? 0) + 1);
+  const aps = apDevices.map(d => ({ name: String(d.name ?? d.model), model: String(d.model ?? ""), state: String(d.state ?? ""), clients: exact ? byAp.get(String(d.id)) ?? 0 : null }));
+  const wifi = items(settled(wifiDoc)).map((w: any) => ({ name: String(w?.name ?? w?.ssid ?? "Wi-Fi"), enabled: w?.enabled !== false, security: String(w?.securityConfiguration?.type ?? w?.security ?? "") }));
+  const networks = items(settled(networksDoc)).map((n: any) => ({ name: String(n?.name ?? "Network"), vlan: firstNum(n?.vlanId), enabled: n?.enabled !== false }));
   // PDUs are Network devices, so the PDU tile can read them from this same connection.
   const pdus = devicesDoc.status === "fulfilled" ? await readPdus(ctx, site, devices).catch(() => []) : [];
   const data = {
@@ -66,12 +122,14 @@ async function networkPoll(ctx: Ctx): Promise<PollResult> {
     site: { id: String(site.id), name: String(site.name ?? "Default") },
     devices: devicesDoc.status === "fulfilled" ? { total: devices.length, online: devices.length - problem.length, offline: problem.length, problems: problem.slice(0, 6).map(d => ({ name: String(d.name ?? d.model ?? "Device"), model: String(d.model ?? ""), state: String(d.state) })) } : null,
     clients: totalClients === null ? null : { total: totalClients, wired: exact ? clients.filter(c => typeOf(c) === "WIRED").length : null, wireless: exact ? clients.filter(c => typeOf(c) === "WIRELESS").length : null },
-    gateway
+    gateway, wans, speedtest, aps, wifi, networks,
+    deviceList: devicesDoc.status === "fulfilled" ? devices.map(d => ({ name: String(d.name ?? d.model ?? "Device"), model: String(d.model ?? ""), state: String(d.state ?? ""), firmware: String(d.firmwareVersion ?? ""), updatable: d.firmwareUpdatable === true })) : null
   };
   const metrics: Record<string, number> = {};
   for (const [k, v] of Object.entries(pduMetrics(pdus))) metrics[`pdu_${k}`] = v;
   if (data.clients) metrics.clients = data.clients.total;
   if (data.devices) { metrics.devices_total = data.devices.total; metrics.devices_offline = data.devices.offline; }
+  wans.forEach((w, i) => { if (w.rxBps !== null) metrics[`wan${i + 1}_rx_bps`] = w.rxBps; if (w.txBps !== null) metrics[`wan${i + 1}_tx_bps`] = w.txBps; });
   if (gateway) {
     for (const [k, v] of Object.entries({ cpu_pct: gateway.cpuPct, mem_pct: gateway.memPct, wan_tx_bps: gateway.txBps, wan_rx_bps: gateway.rxBps })) if (typeof v === "number") metrics[k] = v;
   }

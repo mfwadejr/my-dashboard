@@ -139,3 +139,7 @@ dialog::backdrop{background:rgba(0,0,0,.55);backdrop-filter:blur(3px)}
 .outlet.warn .sub{color:var(--warn)}
 .outlet.hot .sub{color:var(--bad)}
 .outlet.off{opacity:.7}
+
+.usec{display:flex;flex-direction:column;gap:6px;min-width:0}
+.usec .wan{background:var(--panel2);border-radius:8px;padding:6px 8px;display:flex;flex-direction:column;gap:2px}
+.tile:has(.usec){overflow:auto}

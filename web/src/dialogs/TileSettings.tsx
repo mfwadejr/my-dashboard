@@ -6,6 +6,7 @@ import { WIDGET_BY_TYPE } from "../widgets";
 import { Field, Modal } from "./Modal";
 import { iconUrl } from "../api";
 import { initials } from "../widgets/common";
+import { UNIFI_SECTIONS, resolveSections } from "../widgets/unifiSections";
 
 export function TileSettings({ tile, integrations, onChange, onPickIcon, onOpenConnections, onClose }: {
   tile: Tile; integrations: IntegrationInfo[]; onChange: (patch: Record<string, unknown>) => void;
@@ -30,6 +31,25 @@ export function TileSettings({ tile, integrations, onChange, onPickIcon, onOpenC
             ) : <div className="row"><span className="sub">No {def.label} connection yet.</span><button className="btn sm" onClick={onOpenConnections}>Add one</button></div>}
           </Field>
         )}
+        {tile.type === "unifi-network" && (() => {
+          const sections = resolveSections(tile.config.sections);
+          const save = (next: typeof sections) => onChange({ sections: next });
+          const move = (i: number, d: number) => { const n = [...sections]; const j = i + d; if (j < 0 || j >= n.length) return; [n[i], n[j]] = [n[j], n[i]]; save(n); };
+          return (
+            <Field label="Show on this tile" hint="Tick what to show and use the arrows to set the order. A section appears only when UniFi provides the data.">
+              <div className="list">
+                {sections.map((s, i) => { const meta = UNIFI_SECTIONS.find(x => x.id === s.id)!; return (
+                  <div key={s.id} className="li">
+                    <label className="chk" title={meta.hint} style={{ flex: 1 }}><input type="checkbox" checked={s.on} onChange={e => save(sections.map(x => x.id === s.id ? { ...x, on: e.target.checked } : x))} /> {meta.label}</label>
+                    <span className="sub trunc">{meta.hint}</span>
+                    <button type="button" className="btn sm" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
+                    <button type="button" className="btn sm" aria-label="Move down" disabled={i === sections.length - 1} onClick={() => move(i, 1)}>↓</button>
+                  </div>
+                ); })}
+              </div>
+            </Field>
+          );
+        })()}
         {tile.type === "clock" && <label className="chk"><input type="checkbox" checked={tile.config.hour24 === true} onChange={e => onChange({ hour24: e.target.checked })} /> 24-hour time</label>}
         {tile.type === "launcher" && (
           <>

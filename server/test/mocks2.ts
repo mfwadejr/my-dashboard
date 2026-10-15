@@ -51,14 +51,20 @@ export function mockUnifi(tls?: { key: string; cert: string }): Promise<Mock> {
     if (p === "/proxy/network/integration/v1/info") return { body: { applicationVersion: "9.1.120" } };
     if (p === "/proxy/network/integration/v1/sites") return { body: { offset: 0, limit: 200, count: 1, totalCount: 1, data: [{ id: SITE, internalReference: "default", name: "Default" }] } };
     if (p === `/proxy/network/integration/v1/sites/${SITE}/devices`) return { body: { offset: 0, limit: 200, count: 4, totalCount: 4, data: [
-      { id: "d1", name: "Dream Machine", model: "UDM-Pro", type: "UDM", state: "ONLINE" },
-      { id: "d2", name: "Office AP", model: "U7-Pro", type: "UAP", state: "ONLINE" },
+      { id: "d1", macAddress: "aa:bb:cc:00:00:01", name: "Dream Machine", model: "UDM-Pro", type: "UDM", state: "ONLINE" },
+      { id: "d2", name: "Office AP", model: "U7-Pro", type: "UAP", state: "ONLINE", firmwareVersion: "8.0.1", firmwareUpdatable: true },
       { id: "d3", name: "Garage AP", model: "U6-LR", type: "UAP", state: "OFFLINE" },
       { id: "d4", macAddress: "aa:bb:cc:00:00:04", name: "Rack PDU", model: "USP-PDU-Pro", type: "USP", state: "ONLINE" }] } };
     if (p === `/proxy/network/integration/v1/sites/${SITE}/devices/d1/statistics/latest`) return { body: { uptimeSec: 86400, cpuUtilizationPct: 12.5, memoryUtilizationPct: 48, uplink: { txRateBps: 2_000_000, rxRateBps: 9_000_000 } } };
     if (p === `/proxy/network/integration/v1/sites/${SITE}/devices/d4/statistics/latest`) return { body: { uptimeSec: 5, outletPowerW: 1 } };
     if (p === `/proxy/network/integration/v1/sites/${SITE}/devices/d4`) return { body: { id: "d4", name: "Rack PDU", model: "USP-PDU-Pro", state: "ONLINE", secretish: "x" } };
-    if (p === `/proxy/network/integration/v1/sites/${SITE}/clients`) return { body: { offset: 0, limit: 200, count: 3, totalCount: 3, data: [{ type: "WIRED" }, { type: "WIRELESS" }, { type: "WIRELESS" }] } };
+    if (p === `/proxy/network/integration/v1/sites/${SITE}/clients`) return { body: { offset: 0, limit: 200, count: 3, totalCount: 3, data: [{ type: "WIRED" }, { type: "WIRELESS", uplinkDeviceId: "d2" }, { type: "WIRELESS", uplinkDeviceId: "d2" }] } };
+    if (p === `/proxy/network/integration/v1/sites/${SITE}/networks`) return { body: { data: [{ name: "Default", vlanId: 1, enabled: true }, { name: "IoT", vlanId: 30, enabled: true }] } };
+    if (p === `/proxy/network/integration/v1/sites/${SITE}/wifi/broadcasts`) return { body: { data: [{ name: "Home", enabled: true, securityConfiguration: { type: "WPA2_WPA3" } }, { name: "Guest", enabled: false }] } };
+    if (p === "/proxy/network/api/s/default/stat/device/aa%3Abb%3Acc%3A00%3A00%3A01" || p === "/proxy/network/api/s/default/stat/device/aa:bb:cc:00:00:01") return { body: { data: [{
+      wan1: { name: "Fiber", up: true, ip: "203.0.113.5", speed: 1000, "rx_bytes-r": 1_000_000, "tx_bytes-r": 250_000 },
+      wan2: { name: "Backup LTE", up: false, ip: "", "rx_bytes-r": 0, "tx_bytes-r": 0 },
+      "speedtest-status": { xput_download: "940.5", xput_upload: 880, latency: 7 }, general_temperature: 61 }] } };
     if (p === "/proxy/network/api/s/default/stat/device/aa%3Abb%3Acc%3A00%3A00%3A04" || p === "/proxy/network/api/s/default/stat/device/aa:bb:cc:00:00:04") return { body: { meta: { rc: "ok" }, data: [{
       outlet_ac_power_consumption: 60, outlet_ac_power_budget: 1440,
       outlet_table: [{ index: 1, name: "Switch", relay_state: true, outlet_caps: 3, outlet_current: 0.5, outlet_power: 60, outlet_voltage: 120 }, { index: 2, name: "NAS", relay_state: false, outlet_caps: 3, outlet_power: 0 }, { index: 3, name: "USB", relay_state: true, outlet_caps: 1 }] }] } };

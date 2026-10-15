@@ -65,6 +65,13 @@ test("UniFi Network: clients, devices, gateway stats", async () => {
   assert.deepEqual(d.clients, { total: 3, wired: 1, wireless: 2 });
   assert.equal(d.devices.total, 4); assert.equal(d.devices.offline, 1); assert.equal(d.devices.problems[0].name, "Garage AP");
   assert.equal(d.gateway.name, "Dream Machine"); assert.equal(d.gateway.cpuPct, 12.5); assert.equal(d.gateway.rxBps, 9_000_000);
+  assert.deepEqual(d.wans.map((w: any) => [w.name, w.up, w.rxBps, w.txBps]), [["Fiber", true, 8_000_000, 2_000_000], ["Backup LTE", false, 0, 0]], "each WAN with its own throughput");
+  assert.deepEqual([d.speedtest.downMbps, d.speedtest.upMbps], [940.5, 880]);
+  assert.equal(d.gateway.tempC, 61);
+  assert.deepEqual(d.aps.map((a: any) => [a.name, a.clients]), [["Office AP", 2], ["Garage AP", 0]]);
+  assert.deepEqual(d.wifi.map((w: any) => [w.name, w.enabled]), [["Home", true], ["Guest", false]]);
+  assert.deepEqual(d.networks.map((n: any) => [n.name, n.vlan]), [["Default", 1], ["IoT", 30]]);
+  assert.equal(d.deviceList.find((x: any) => x.name === "Office AP").updatable, true);
   assert.equal(d.pdus.length, 1, "the PDU tile can read PDUs from a plain UniFi Network connection");
   assert.deepEqual([d.pdus[0].name, d.pdus[0].totalW, d.pdus[0].outlets.length], ["Rack PDU", 60, 3]);
   assert.ok(unifi.hits.every(h => !h.includes(KEY)));
