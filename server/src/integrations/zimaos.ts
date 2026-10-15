@@ -60,16 +60,41 @@ const PATHS = {
   utilization: "/v1/sys/utilization", version: "/v1/sys/version/check", hardware: "/v1/sys/hardware/info",
   systemDisk: "/v1/sys/disk", storage: "/v2/local_storage/disk", apps: "/v2/app_management/web/appgrid"
 } as const;
-type Name = keyof typeof PATHS;
+type Name = keyof typeof PATHS | "containers" | "vms";
+
+/** Containers and virtual machines have no documented list endpoint, so the likely ones are tried in order and the first that answers is used. */
+const OPTIONAL = {
+  containers: ["/v1/container", "/v2/app_management/compose", "/v2/app_management/container"],
+  vms: ["/v2/vm", "/v2/virtual_machine", "/v1/vm"]
+} as const;
+
+async function firstOk(ctx: Ctx, paths: readonly string[]): Promise<{ path: string; doc: any } | null> {
+  for (const path of paths) { try { return { path, doc: await call(ctx, path) }; } catch (e) { if (e instanceof IntegrationError && (e.status === 401 || e.status === 403)) throw e; } }
+  return null;
+}
+
+/** Accepts a list, or a map of name → record (how compose apps are often keyed). */
+function records(doc: any): any[] {
+  const list = Array.isArray(doc) ? doc : Array.isArray(doc?.data) ? doc.data : Array.isArray(doc?.items) ? doc.items : null;
+  if (list) return list.filter((x: any) => x && typeof x === "object");
+  if (doc && typeof doc === "object") return Object.entries(doc).filter(([, v]) => v && typeof v === "object").map(([k, v]: [string, any]) => ({ name: k, ...v }));
+  return [];
+}
+const label = (x: any, ...keys: string[]): string => { for (const k of keys) { const v = Array.isArray(x?.[k]) ? x[k][0] : x?.[k]; if (typeof v === "string" && v) return v.replace(/^\//, ""); } return "Unnamed"; };
+const stateOf = (x: any) => String(x?.state ?? x?.State ?? x?.status ?? x?.Status ?? "").toLowerCase();
+const isRunning = (st: string) => /^(running|up|started|active)/.test(st);
 
 async function readAll(ctx: Ctx): Promise<{ docs: Partial<Record<Name, any>>; failed: Name[] }> {
-  const names = Object.keys(PATHS) as Name[];
+  const names = Object.keys(PATHS) as Array<keyof typeof PATHS>;
   const results = await Promise.allSettled(names.map(n => call(ctx, PATHS[n])));
   const docs: Partial<Record<Name, any>> = {}, failed: Name[] = [];
   results.forEach((r, i) => { if (r.status === "fulfilled") docs[names[i]] = r.value; else failed.push(names[i]); });
   // A login problem should surface as an error, not as "nothing available".
   const firstError = results.find(r => r.status === "rejected") as PromiseRejectedResult | undefined;
   if (failed.length === names.length && firstError) throw firstError.reason;
+  const [containers, vms] = await Promise.all([firstOk(ctx, OPTIONAL.containers), firstOk(ctx, OPTIONAL.vms)]);
+  if (containers) docs.containers = containers.doc; else failed.push("containers");
+  if (vms) docs.vms = vms.doc; else failed.push("vms");
   return { docs, failed };
 }
 
@@ -90,6 +115,9 @@ function shape(d: Partial<Record<Name, any>>) {
     mem: mem ? { pct: memPct, totalB: memTotal, usedB: memUsed } : null,
     systemDisk: sdTotal && sdUsed !== null ? { totalB: sdTotal, usedB: sdUsed, pct: Math.round((sdUsed / sdTotal) * 100) } : null,
     disks,
+    appList: apps.map(a => { const st = stateOf(a); return { name: label(a, "title", "name"), state: st || null, running: isRunning(st) }; }).slice(0, 60),
+    containers: d.containers === undefined ? null : records(d.containers).map(c => { const st = stateOf(c); return { name: label(c, "Names", "name", "title"), image: typeof (c.Image ?? c.image) === "string" ? String(c.Image ?? c.image) : null, state: st || null, running: isRunning(st) }; }).slice(0, 80),
+    vms: d.vms === undefined ? null : records(d.vms).map(v => { const st = stateOf(v); return { name: label(v, "name", "title", "Name"), state: st || null, running: isRunning(st) }; }).slice(0, 40),
     apps: apps.length ? { total: apps.length, running: apps.filter(a => String(a.status ?? a.state ?? "").toLowerCase() === "running").length, known: apps.some(a => a.status !== undefined || a.state !== undefined) } : null
   };
 }
@@ -97,7 +125,7 @@ function shape(d: Partial<Record<Name, any>>) {
 async function test(ctx: Ctx): Promise<TestResult> {
   const { docs, failed } = await readAll(ctx);
   const s = shape(docs);
-  const ok = (Object.keys(PATHS) as Name[]).filter(n => !failed.includes(n));
+  const ok = [...(Object.keys(PATHS) as Name[]), "containers" as Name, "vms" as Name].filter(n => !failed.includes(n));
   return { ok: true, message: `Logged in to ZimaOS${s.version ? " " + s.version : ""}\nReadable: ${ok.join(", ") || "nothing"}${failed.length ? `\nNot available on this system: ${failed.join(", ")}` : ""}`, version: s.version ?? undefined };
 }
 
@@ -108,6 +136,8 @@ async function poll(ctx: Ctx): Promise<PollResult> {
   const put = (k: string, v: number | null | undefined) => { if (typeof v === "number" && Number.isFinite(v)) metrics[k] = v; };
   put("cpu_pct", data.cpu?.pct); put("cpu_temp_c", data.cpu?.tempC); put("mem_pct", data.mem?.pct); put("system_disk_pct", data.systemDisk?.pct);
   put("apps_running", data.apps?.known ? data.apps.running : null);
+  if (data.containers) put("containers_running", data.containers.filter(c => c.running).length);
+  if (data.vms) put("vms_running", data.vms.filter(v => v.running).length);
   return { data, metrics };
 }
 

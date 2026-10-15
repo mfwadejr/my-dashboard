@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { WidgetProps } from "./types";
-import { resolveSections } from "./unifiSections";
+import { resolveSections } from "./sections";
 import { Bar, Empty, Pill } from "./common";
 import { Shell, pct, rate, uptime } from "./Shell";
 
@@ -48,7 +48,7 @@ const SECTIONS: Record<string, (d: any) => ReactNode> = {
 };
 
 export function UnifiNetwork(props: WidgetProps) {
-  const sections = resolveSections(props.tile.config.sections).filter(s => s.on);
+  const sections = resolveSections("unifi-network", props.tile.config.sections).filter(s => s.on);
   return (
     <Shell props={props} label="UniFi Network">{d => (
       <>

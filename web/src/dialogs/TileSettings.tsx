@@ -6,7 +6,7 @@ import { WIDGET_BY_TYPE } from "../widgets";
 import { Field, Modal } from "./Modal";
 import { iconUrl } from "../api";
 import { initials } from "../widgets/common";
-import { UNIFI_SECTIONS, resolveSections } from "../widgets/unifiSections";
+import { SECTION_DEFS, resolveSections } from "../widgets/sections";
 
 export function TileSettings({ tile, integrations, onChange, onPickIcon, onOpenConnections, onClose }: {
   tile: Tile; integrations: IntegrationInfo[]; onChange: (patch: Record<string, unknown>) => void;
@@ -31,14 +31,14 @@ export function TileSettings({ tile, integrations, onChange, onPickIcon, onOpenC
             ) : <div className="row"><span className="sub">No {def.label} connection yet.</span><button className="btn sm" onClick={onOpenConnections}>Add one</button></div>}
           </Field>
         )}
-        {tile.type === "unifi-network" && (() => {
-          const sections = resolveSections(tile.config.sections);
+        {SECTION_DEFS[tile.type] && (() => {
+          const sections = resolveSections(tile.type, tile.config.sections);
           const save = (next: typeof sections) => onChange({ sections: next });
           const move = (i: number, d: number) => { const n = [...sections]; const j = i + d; if (j < 0 || j >= n.length) return; [n[i], n[j]] = [n[j], n[i]]; save(n); };
           return (
-            <Field label="Show on this tile" hint="Tick what to show and use the arrows to set the order. A section appears only when UniFi provides the data.">
+            <Field label="Show on this tile" hint="Tick what to show and use the arrows to set the order. A section appears only when the app provides the data.">
               <div className="list">
-                {sections.map((s, i) => { const meta = UNIFI_SECTIONS.find(x => x.id === s.id)!; return (
+                {sections.map((s, i) => { const meta = SECTION_DEFS[tile.type].find(x => x.id === s.id)!; return (
                   <div key={s.id} className="li">
                     <label className="chk" title={meta.hint} style={{ flex: 1 }}><input type="checkbox" checked={s.on} onChange={e => save(sections.map(x => x.id === s.id ? { ...x, on: e.target.checked } : x))} /> {meta.label}</label>
                     <span className="sub trunc">{meta.hint}</span>
