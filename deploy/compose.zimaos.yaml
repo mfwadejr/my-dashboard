@@ -1,0 +1,35 @@
+# Homebase + go2rtc in ONE file. In ZimaOS: App Store -> "+" (Custom Install) -> paste/import this file.
+name: homebase
+
+services:
+  homebase:
+    image: ghcr.io/mfwadejr/my-dashboard:latest
+    container_name: homebase
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # go2rtc runs on the host network (see below), so Homebase reaches it through the host.
+      GO2RTC_URL: http://host.docker.internal:1984
+      # Optional: pre-set the admin password instead of choosing it in the browser on first visit.
+      # ADMIN_PASSWORD: change-me-please
+      # Optional: your own encryption key for stored API keys / camera URLs (otherwise one is generated in /data).
+      # HOMEBASE_SECRET_KEY: a-long-random-string
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /DATA/AppData/homebase/data:/data
+    depends_on:
+      - go2rtc
+    labels:
+      icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/homarr.png
+
+  go2rtc:
+    image: alexxit/go2rtc:latest
+    container_name: homebase-go2rtc
+    restart: unless-stopped
+    # Host networking lets go2rtc reach cameras on your LAN and use WebRTC. Its web UI (port 1984)
+    # has no password, so keep this port off the internet; Homebase proxies only what viewers need.
+    network_mode: host
+    volumes:
+      - /DATA/AppData/homebase/go2rtc:/config
