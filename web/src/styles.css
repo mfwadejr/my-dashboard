@@ -148,3 +148,12 @@ dialog::backdrop{background:rgba(0,0,0,.55);backdrop-filter:blur(3px)}
 .sec-pick .li{justify-content:flex-start}
 .sec-pick .chk{flex:0 0 auto;min-width:190px}
 .sec-pick .sub{flex:1;min-width:0}
+
+.gauges{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.gauge{display:flex;flex-direction:column;align-items:center;min-width:0}
+.gauge svg{width:100%;max-width:150px;height:auto}
+.gauge .gv{font-size:28px;font-weight:700;fill:var(--text)}
+.gauge .gu{font-size:13px;fill:var(--mute)}
+.gauge .gl{font-size:12px;fill:var(--text)}
+.gauge .gd{font-size:12px;color:var(--mute);margin-top:-6px;text-align:center}
+.gauge .gd.warn{color:var(--warn)}

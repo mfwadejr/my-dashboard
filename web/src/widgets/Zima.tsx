@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { WidgetProps } from "./types";
 import { Bar, Empty, Pill } from "./common";
+import { Gauge } from "./Gauge";
 import { Shell, bytes, pct } from "./Shell";
 import { resolveSections } from "./sections";
 
@@ -18,14 +19,11 @@ function StateList({ rows, none }: { rows: Array<{ name: string; sub?: string | 
 
 const SECTIONS: Record<string, (d: any) => ReactNode> = {
   summary: d => (d.cpu || d.mem) && (
-    <>
-      <div className="stats3">
-        <div><b>{pct(d.cpu?.pct)}</b><span>CPU</span></div>
-        <div><b>{pct(d.mem?.pct)}</b><span>RAM</span></div>
-        <div><b className={d.cpu?.tempC > 80 ? "warn" : ""}>{d.cpu?.tempC != null ? `${Math.round(d.cpu.tempC)}°` : "–"}</b><span>CPU temp</span></div>
-      </div>
-      {d.mem?.pct != null && <Bar value={d.mem.pct / 100} tone={d.mem.pct > 90 ? "warn" : undefined} />}
-    </>
+    <div className="gauges">
+      <Gauge pct={d.cpu?.pct} label="CPU" hot={d.cpu?.tempC > 80}
+        detail={[d.cpu?.powerW != null && `${d.cpu.powerW.toFixed(1)} W`, d.cpu?.tempC != null && `${Math.round(d.cpu.tempC)}°C`].filter(Boolean).join(" / ") || undefined} />
+      <Gauge pct={d.mem?.pct} label="RAM" warn={80} detail={d.mem?.usedB != null ? `${bytes(d.mem.usedB)}${d.mem.totalB ? ` of ${bytes(d.mem.totalB)}` : ""}` : undefined} />
+    </div>
   ),
   systemdisk: d => d.systemDisk && (
     <div><div className="row sp"><span className="sub">System disk {d.systemDisk.pct}%</span><span className="sub">{bytes(d.systemDisk.usedB)} of {bytes(d.systemDisk.totalB)}</span></div><Bar value={d.systemDisk.pct / 100} tone={d.systemDisk.pct > 90 ? "warn" : undefined} /></div>
