@@ -49,8 +49,8 @@ export function mockZima(): Promise<Mock & { logins: () => number }> {
       case "/v1/sys/hardware/info": return { body: { success: 200, data: { drive_model: "ZimaCube", arch: "amd64" } } };
       case "/v1/sys/disk": return { body: { success: 200, data: { size: 100000000000, used: 25000000000, avail: 75000000000 } } };
       case "/v2/local_storage/disk": return { body: { data: [{ name: "sda", model: "WD Red", size: 4000000000000, temperature: 38, health: "true" }, { name: "nvme0", model: "Samsung", size: 1000000000000, temperature: 44 }] } };
-      case "/v2/app_management/web/appgrid": return { body: { data: [{ name: "Plex", status: "running" }, { name: "Immich", status: "stopped" }] } };
-      case "/v1/container": return { body: { data: [{ Names: ["/plex"], Image: "plexinc/pms-docker", State: "running" }, { Names: ["/old"], Image: "x/y", State: "exited" }] } };
+      case "/v2/app_management/web/appgrid": return { body: { data: [{ name: "compose-aaa111", status: "running" }, { name: "Immich", title: { en_us: "Immich Photos" }, status: "stopped" }] } };
+      case "/v1/container": return { body: { data: [{ Names: ["/plex"], Image: "plexinc/pms-docker", State: "running", Labels: { "com.docker.compose.project": "compose-aaa111" } }, { Names: ["/old"], Image: "x/y", State: "exited" }] } };
       default: return { status: 404 };
     }
   }).then(m => Object.assign(m, { logins: () => logins }));

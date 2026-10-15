@@ -143,3 +143,8 @@ dialog::backdrop{background:rgba(0,0,0,.55);backdrop-filter:blur(3px)}
 .usec{display:flex;flex-direction:column;gap:6px;min-width:0}
 .usec .wan{background:var(--panel2);border-radius:8px;padding:6px 8px;display:flex;flex-direction:column;gap:2px}
 .tile:has(.usec){overflow:auto}
+
+.chk input{width:auto;padding:0;flex:none}
+.sec-pick .li{justify-content:flex-start}
+.sec-pick .chk{flex:0 0 auto;min-width:190px}
+.sec-pick .sub{flex:1;min-width:0}

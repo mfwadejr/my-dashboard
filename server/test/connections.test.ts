@@ -169,7 +169,7 @@ test("ZimaOS: logs in once, reuses the token, never leaks the password", async (
     assert.equal(z.logins() - loginsBefore, 0, "token from the test is reused (login is limited to 5/min)");
     assert.equal(d.cpu.pct, 18.2); assert.equal(d.cpu.tempC, 51); assert.equal(d.mem.pct, 50); assert.equal(d.needUpdate, true);
     assert.equal(d.systemDisk.pct, 25); assert.equal(d.disks[0].name, "sda"); assert.deepEqual(d.apps, { total: 2, running: 1, known: true });
-    assert.deepEqual(d.appList.map((a: any) => [a.name, a.running]), [["Plex", true], ["Immich", false]]);
+    assert.deepEqual(d.appList.map((a: any) => [a.name, a.running]), [["plex", true], ["Immich Photos", false]]);
     assert.deepEqual(d.containers.map((c: any) => [c.name, c.image, c.running]), [["plex", "plexinc/pms-docker", true], ["old", "x/y", false]]);
     assert.equal(d.vms, null, "no VM endpoint answered: reported as unavailable, not as zero VMs");
     assert.ok(!JSON.stringify([bad, t, d]).includes(ZIMA_PASS));

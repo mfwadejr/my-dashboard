@@ -4,11 +4,11 @@ import { Bar, Empty, Pill } from "./common";
 import { Shell, bytes, pct } from "./Shell";
 import { resolveSections } from "./sections";
 
-function StateList({ rows, none }: { rows: Array<{ name: string; sub?: string | null; state: string | null; running: boolean }>; none: string }) {
+function StateList({ rows, none }: { rows: Array<{ name: string; sub?: string | null; state: string | null; running: boolean; hint?: string; id?: string | null }>; none: string }) {
   if (rows.length === 0) return <Empty>{none}</Empty>;
   return (
     <div className="list">{rows.map((r, i) => (
-      <div key={`${r.name}${i}`} className="li">
+      <div key={`${r.name}${i}`} className="li" title={[r.id && r.id !== r.name ? `id: ${r.id}` : "", r.hint ? `ZimaOS sent: ${r.hint}` : ""].filter(Boolean).join(" · ") || undefined}>
         <span className="trunc">{r.name}{r.sub ? <span className="sub"> · {r.sub}</span> : null}</span>
         <Pill tone={r.running ? "ok" : "mute"}>{r.state ?? (r.running ? "running" : "stopped")}</Pill>
       </div>

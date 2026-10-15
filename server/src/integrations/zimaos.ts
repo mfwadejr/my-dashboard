@@ -80,7 +80,26 @@ function records(doc: any): any[] {
   if (doc && typeof doc === "object") return Object.entries(doc).filter(([, v]) => v && typeof v === "object").map(([k, v]: [string, any]) => ({ name: k, ...v }));
   return [];
 }
-const label = (x: any, ...keys: string[]): string => { for (const k of keys) { const v = Array.isArray(x?.[k]) ? x[k][0] : x?.[k]; if (typeof v === "string" && v) return v.replace(/^\//, ""); } return "Unnamed"; };
+/** Titles may be a plain string or a language map such as {en_us: "Plex"}; the technical name (often compose-<hash>) is the last resort. */
+function titleText(v: unknown): string | null {
+  if (typeof v === "string" && v.trim()) return v.trim();
+  if (v && typeof v === "object") {
+    const m = v as Record<string, unknown>;
+    const pick = m.en_us ?? m.en_US ?? m.en ?? Object.values(m).find(x => typeof x === "string" && x);
+    if (typeof pick === "string" && pick.trim()) return pick.trim();
+  }
+  return null;
+}
+const label = (x: any, ...keys: string[]): string => {
+  const candidates = [x?.title, x?.store_info?.title, x?.storeInfo?.title, x?.app_title, x?.display_name, x?.displayName, x?.["x-casaos"]?.title];
+  for (const c of candidates) { const t = titleText(c); if (t) return t; }
+  for (const k of keys) { const v = Array.isArray(x?.[k]) ? x[k][0] : x?.[k]; const t = titleText(v); if (t) return t.replace(/^\//, ""); }
+  return "Unnamed";
+};
+const hasTitle = (x: any) => [x?.title, x?.store_info?.title, x?.storeInfo?.title, x?.app_title, x?.display_name, x?.displayName, x?.["x-casaos"]?.title].some(c => titleText(c));
+/** Scalar field names and short values, so an unexpected response can be understood from the tile's tooltip. */
+const hint = (x: any) => Object.entries(x ?? {}).filter(([, v]) => ["string", "number", "boolean"].includes(typeof v)).slice(0, 12).map(([k, v]) => `${k}=${String(v).slice(0, 30)}`).join(", ");
+const project = (c: any): string | null => { const l = c?.Labels ?? c?.labels; const p = l && typeof l === "object" ? l["com.docker.compose.project"] : null; return typeof p === "string" ? p : null; };
 const stateOf = (x: any) => String(x?.state ?? x?.State ?? x?.status ?? x?.Status ?? "").toLowerCase();
 const isRunning = (st: string) => /^(running|up|started|active)/.test(st);
 
@@ -108,6 +127,18 @@ function shape(d: Partial<Record<Name, any>>) {
     name: String(x.name ?? x.model ?? "Disk"), model: x.model ? String(x.model) : null, sizeB: num(x.size), tempC: num(x.temperature ?? x.temp), health: x.health !== undefined ? String(x.health) : null
   }));
   const apps = items(d.apps);
+  const rawContainers = d.containers === undefined ? null : records(d.containers);
+  const containerList = rawContainers === null ? null : rawContainers.map(c => { const st = stateOf(c); return { name: label(c, "Names", "name", "title"), image: typeof (c.Image ?? c.image) === "string" ? String(c.Image ?? c.image) : null, state: st || null, running: isRunning(st), hint: hint(c) }; }).slice(0, 80);
+  // Apps whose record has no readable title (ZimaOS names them compose-<hash>) take the name of their own container instead.
+  const appList = apps.map(a => {
+    const st = stateOf(a); const id = typeof a.name === "string" ? a.name : null;
+    let name = label(a, "name", "id");
+    if (!hasTitle(a) && id && rawContainers) {
+      const own = rawContainers.filter(c => project(c) === id).map(c => label(c, "Names", "name"));
+      if (own.length) name = own.join(", ");
+    }
+    return { name, id, state: st || null, running: isRunning(st), hint: hint(a) };
+  }).slice(0, 60);
   return {
     version: d.version?.current_version ?? d.version?.version ?? null, needUpdate: d.version?.need_update === true, latest: d.version?.version ?? null,
     arch: d.hardware?.arch ?? null, device: d.hardware?.drive_model ?? null,
@@ -115,9 +146,9 @@ function shape(d: Partial<Record<Name, any>>) {
     mem: mem ? { pct: memPct, totalB: memTotal, usedB: memUsed } : null,
     systemDisk: sdTotal && sdUsed !== null ? { totalB: sdTotal, usedB: sdUsed, pct: Math.round((sdUsed / sdTotal) * 100) } : null,
     disks,
-    appList: apps.map(a => { const st = stateOf(a); return { name: label(a, "title", "name"), state: st || null, running: isRunning(st) }; }).slice(0, 60),
-    containers: d.containers === undefined ? null : records(d.containers).map(c => { const st = stateOf(c); return { name: label(c, "Names", "name", "title"), image: typeof (c.Image ?? c.image) === "string" ? String(c.Image ?? c.image) : null, state: st || null, running: isRunning(st) }; }).slice(0, 80),
-    vms: d.vms === undefined ? null : records(d.vms).map(v => { const st = stateOf(v); return { name: label(v, "name", "title", "Name"), state: st || null, running: isRunning(st) }; }).slice(0, 40),
+    appList: appList,
+    containers: containerList,
+    vms: d.vms === undefined ? null : records(d.vms).map(v => { const st = stateOf(v); return { name: label(v, "name", "title", "Name"), state: st || null, running: isRunning(st), hint: hint(v) }; }).slice(0, 40),
     apps: apps.length ? { total: apps.length, running: apps.filter(a => String(a.status ?? a.state ?? "").toLowerCase() === "running").length, known: apps.some(a => a.status !== undefined || a.state !== undefined) } : null
   };
 }
@@ -126,7 +157,9 @@ async function test(ctx: Ctx): Promise<TestResult> {
   const { docs, failed } = await readAll(ctx);
   const s = shape(docs);
   const ok = [...(Object.keys(PATHS) as Name[]), "containers" as Name, "vms" as Name].filter(n => !failed.includes(n));
-  return { ok: true, message: `Logged in to ZimaOS${s.version ? " " + s.version : ""}\nReadable: ${ok.join(", ") || "nothing"}${failed.length ? `\nNot available on this system: ${failed.join(", ")}` : ""}`, version: s.version ?? undefined };
+  const first = items(docs.apps)[0];
+  const appFields = first ? `\nApp fields: ${Object.keys(first).slice(0, 20).join(", ")}` : "";
+  return { ok: true, message: `Logged in to ZimaOS${s.version ? " " + s.version : ""}\nReadable: ${ok.join(", ") || "nothing"}${failed.length ? `\nNot available on this system: ${failed.join(", ")}` : ""}${appFields}`, version: s.version ?? undefined };
 }
 
 async function poll(ctx: Ctx): Promise<PollResult> {
