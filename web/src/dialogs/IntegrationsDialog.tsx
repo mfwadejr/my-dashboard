@@ -3,7 +3,7 @@ import { api } from "../api";
 import type { IntegrationInfo, IntegrationType } from "../types";
 import { Field, Modal } from "./Modal";
 
-interface Form { id?: string; type: string; name: string; url: string; apiKey: string; intervalSeconds: number }
+interface Form { id?: string; type: string; name: string; url: string; apiKey: string; intervalSeconds: number; insecureTls: boolean }
 
 export function IntegrationsDialog({ integrations, onChanged, onClose }: { integrations: IntegrationInfo[]; onChanged: () => void; onClose: () => void }) {
   const [types, setTypes] = useState<IntegrationType[]>([]);
@@ -15,13 +15,13 @@ export function IntegrationsDialog({ integrations, onChanged, onClose }: { integ
 
   const type = types.find(t => t.id === form?.type);
   const set = (patch: Partial<Form>) => { setForm(f => (f ? { ...f, ...patch } : f)); setResult(null); };
-  const add = (t: IntegrationType) => { setForm({ type: t.id, name: t.name, url: "", apiKey: "", intervalSeconds: 15 }); setResult(null); setConfirmDelete(false); };
-  const edit = (i: IntegrationInfo) => { setForm({ id: i.id, type: i.type, name: i.name, url: i.url ?? "", apiKey: "", intervalSeconds: i.intervalSeconds ?? 15 }); setResult(null); setConfirmDelete(false); };
+  const add = (t: IntegrationType) => { setForm({ type: t.id, name: t.name, url: "", apiKey: "", intervalSeconds: 15, insecureTls: false }); setResult(null); setConfirmDelete(false); };
+  const edit = (i: IntegrationInfo) => { setForm({ id: i.id, type: i.type, name: i.name, url: i.url ?? "", apiKey: "", intervalSeconds: i.intervalSeconds ?? 15, insecureTls: Boolean(i.insecureTls) }); setResult(null); setConfirmDelete(false); };
 
   const test = async () => {
     if (!form) return;
     setBusy(true); setResult(null);
-    try { setResult(await api.post("/api/integrations/test", { id: form.id, type: form.type, url: form.url, apiKey: form.apiKey })); }
+    try { setResult(await api.post("/api/integrations/test", { id: form.id, type: form.type, url: form.url, apiKey: form.apiKey, insecureTls: form.insecureTls })); }
     catch (e) { setResult({ ok: false, message: e instanceof Error ? e.message : "Test failed" }); }
     setBusy(false);
   };
@@ -63,6 +63,7 @@ export function IntegrationsDialog({ integrations, onChanged, onClose }: { integ
           <Field label="Address" hint="Where Homebase can reach the app, for example the server's IP and port."><input value={form.url} placeholder={type?.urlHint} onChange={e => set({ url: e.target.value })} autoComplete="off" /></Field>
           <Field label={type?.keyLabel ?? "API key"} hint={form.id ? "Leave blank to keep the saved key." : undefined}><input type="password" value={form.apiKey} onChange={e => set({ apiKey: e.target.value })} autoComplete="off" placeholder={form.id ? "••••••••" : ""} /></Field>
           <Field label="Refresh every (seconds)"><input type="number" min={5} max={3600} value={form.intervalSeconds} onChange={e => set({ intervalSeconds: Number(e.target.value) })} /></Field>
+          <label className="chk"><input type="checkbox" checked={form.insecureTls} onChange={e => set({ insecureTls: e.target.checked })} /> Allow a self-signed certificate (https addresses only, common for UniFi)</label>
           {result && <p className={result.ok ? "ok-note" : "error"} role="status">{result.ok ? "✓ " : "✕ "}{result.message}</p>}
           <div className="acts">
             <span>{form.id && <button type="button" className="btn" onClick={remove} disabled={busy}>{confirmDelete ? "Click again to remove" : "Remove"}</button>}</span>

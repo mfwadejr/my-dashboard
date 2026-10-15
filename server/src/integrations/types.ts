@@ -2,6 +2,8 @@ export interface Ctx {
   /** Base URL of the app, with no trailing slash. */
   url: string;
   apiKey: string;
+  /** Accept a self-signed https certificate (UniFi consoles and many LAN apps use one). */
+  insecureTls?: boolean;
 }
 
 export interface TestResult { ok: boolean; message: string; version?: string }

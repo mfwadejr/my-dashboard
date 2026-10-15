@@ -40,7 +40,8 @@ const MIGRATIONS: string[] = [
   CREATE TABLE sessions (
     token_hash TEXT PRIMARY KEY, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL
   );
-  `
+  `,
+  `ALTER TABLE integrations ADD COLUMN insecure_tls INTEGER NOT NULL DEFAULT 0;`
 ];
 
 export function openDb(dataDir: string): DB {

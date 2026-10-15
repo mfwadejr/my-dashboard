@@ -1,3 +1,4 @@
+import { request as httpsRequest } from "node:https";
 import type { Ctx } from "./types.js";
 
 export class IntegrationError extends Error {}
@@ -20,9 +21,11 @@ export async function getJson(ctx: Ctx, path: string, options: Options = {}): Pr
   const url = new URL(ctx.url + path);
   for (const [key, value] of Object.entries(options.query ?? {})) if (value !== undefined) url.searchParams.set(key, String(value));
   const scrub = (text: string) => (ctx.apiKey ? text.split(ctx.apiKey).join("***") : text);
-  let response: Response;
+  const headers = { Accept: "application/json", ...options.headers };
+  const timeoutMs = options.timeoutMs ?? 8000;
+  let response: { status: number; ok: boolean; json(): Promise<any> };
   try {
-    response = await fetch(url, { headers: { Accept: "application/json", ...options.headers }, signal: AbortSignal.timeout(options.timeoutMs ?? 8000) });
+    response = ctx.insecureTls && url.protocol === "https:" ? await insecureGet(url, headers, timeoutMs) : await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
   } catch (error) {
     const reason = error instanceof Error ? (error.name === "TimeoutError" ? "timed out" : (error.cause as Error | undefined)?.message || error.message) : "unreachable";
     throw new IntegrationError(scrub(`Could not reach ${ctx.url}: ${reason}`));
@@ -30,4 +33,24 @@ export async function getJson(ctx: Ctx, path: string, options: Options = {}): Pr
   if (response.status === 401 || response.status === 403) throw new IntegrationError("The app rejected the API key");
   if (!response.ok) throw new IntegrationError(`The app answered with HTTP ${response.status}`);
   try { return await response.json(); } catch { throw new IntegrationError("The app did not return JSON (is this the right address?)"); }
+}
+
+/** https GET that accepts a self-signed certificate. Only used when the admin ticked the box for that connection. */
+function insecureGet(url: URL, headers: Record<string, string>, timeoutMs: number) {
+  return new Promise<{ status: number; ok: boolean; json(): Promise<any> }>((resolve, reject) => {
+    const req = httpsRequest(url, { method: "GET", headers, rejectUnauthorized: false, timeout: timeoutMs }, res => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      res.on("data", (c: Buffer) => { size += c.length; if (size > 20_000_000) req.destroy(new Error("response too large")); else chunks.push(c); });
+      res.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        const status = res.statusCode ?? 0;
+        resolve({ status, ok: status >= 200 && status < 300, json: async () => JSON.parse(text) });
+      });
+      res.on("error", reject);
+    });
+    req.on("timeout", () => { const e = new Error("timed out"); e.name = "TimeoutError"; req.destroy(e); });
+    req.on("error", reject);
+    req.end();
+  });
 }

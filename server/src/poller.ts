@@ -92,7 +92,7 @@ export class Poller {
     const checkedAt = Date.now();
     if (!type) return { id: row.id, ok: false, ts: previous?.ts ?? null, checkedAt, error: `Unknown integration type "${row.type}"`, data: previous?.data ?? null };
     try {
-      const result = await type.poll({ url: row.url, apiKey: this.store.apiKeyOf(row) });
+      const result = await type.poll(this.store.ctxOf(row));
       this.recordMetrics(row.id, result.metrics, checkedAt);
       return { id: row.id, ok: true, ts: checkedAt, checkedAt, error: null, data: result.data };
     } catch (error) {

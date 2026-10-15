@@ -15,7 +15,8 @@ function parseInput(body: any, existing?: { type: string }) {
   const url = normalizeUrl(String(body?.url ?? ""));
   const apiKey = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
   const intervalSeconds = Math.max(5, Math.min(3600, Math.round(Number(body?.intervalSeconds ?? 15)) || 15));
-  return { type, name, url, apiKey, intervalSeconds, enabled: body?.enabled === undefined ? true : Boolean(body.enabled) };
+  const insecureTls = Boolean(body?.insecureTls);
+  return { type, name, url, apiKey, intervalSeconds, insecureTls, enabled: body?.enabled === undefined ? true : Boolean(body.enabled) };
 }
 
 export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, poller: Poller, hub: Hub, requireAuth: preHandlerAsyncHookHandler): void {
@@ -26,7 +27,7 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
     const admin = sessionValid(db, request.cookies[COOKIE]);
     return store.listIntegrations().map(row => ({
       id: row.id, type: row.type, name: row.name, enabled: Boolean(row.enabled),
-      ...(admin ? { url: row.url, intervalSeconds: row.interval_s, hasKey: Boolean(row.secret) } : {})
+      ...(admin ? { url: row.url, intervalSeconds: row.interval_s, hasKey: Boolean(row.secret), insecureTls: Boolean(row.insecure_tls) } : {})
     }));
   });
 
@@ -49,7 +50,7 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
     if (!row) return reply.code(404).send({ error: "Not found" });
     try {
       const input = parseInput(request.body, row);
-      store.updateIntegration(id, { name: input.name, url: input.url, apiKey: input.apiKey || undefined, intervalSeconds: input.intervalSeconds, enabled: input.enabled });
+      store.updateIntegration(id, { name: input.name, url: input.url, apiKey: input.apiKey || undefined, intervalSeconds: input.intervalSeconds, enabled: input.enabled, insecureTls: input.insecureTls });
       poller.reload(id);
       return { ok: true };
     } catch (error) {
@@ -77,7 +78,7 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
       const url = normalizeUrl(String(body.url || saved?.url || ""));
       const apiKey = (typeof body.apiKey === "string" && body.apiKey.trim()) || (saved ? store.apiKeyOf(saved) : "");
       if (!apiKey) return { ok: false, message: "Enter the API key" };
-      return await impl.test({ url, apiKey });
+      return await impl.test({ url, apiKey, insecureTls: body.insecureTls === undefined ? Boolean(saved?.insecure_tls) : Boolean(body.insecureTls) });
     } catch (error) {
       if (error instanceof IntegrationError) return { ok: false, message: error.message };
       throw error;
@@ -91,7 +92,7 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
     const run = impl?.actions?.[action];
     if (!row || !run) return reply.code(404).send({ error: "Unknown action" });
     try {
-      await run({ url: row.url, apiKey: store.apiKeyOf(row) }, (request.body ?? {}) as Record<string, unknown>);
+      await run(store.ctxOf(row), (request.body ?? {}) as Record<string, unknown>);
       void poller.run(id); // refresh the tile right away
       return { ok: true };
     } catch (error) {
