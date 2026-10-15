@@ -7,7 +7,7 @@ services:
     container_name: homebase
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "9286:3000"
     environment:
       # go2rtc runs on the host network (see below), so Homebase reaches it through the host.
       GO2RTC_URL: http://host.docker.internal:1984
@@ -39,7 +39,7 @@ x-casaos:
   id: com.mfwadejr.homebase
   main: homebase
   index: /
-  port_map: "3000"
+  port_map: "9286"
   scheme: http
   icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/homarr.png
   title:

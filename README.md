@@ -5,7 +5,7 @@ A self-hosted dashboard with tabs, groups, resizable tiles, live app stats and c
 ## Install on ZimaOS
 
 1. Open the ZimaOS App Store, click **+** (Custom Install) and import `deploy/compose.zimaos.yaml`.
-2. Open `http://<your-zima-ip>:3000`. Anyone on your network can view the dashboard.
+2. Open `http://<your-zima-ip>:9286`. Anyone on your network can view the dashboard.
 3. Click **Set up**, choose an admin password, then **Edit**. The password is only needed to change things.
 4. **Connections** → pick Sonarr, Radarr or SABnzbd → enter the address and API key → **Test connection** → Save.
 5. **Add tile** in a group, choose the connection, and drag/resize tiles. Layout is saved automatically.
