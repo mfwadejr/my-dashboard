@@ -4,14 +4,20 @@ import type { AddressInfo } from "node:net";
 
 export interface Mock { server: Server; url: string; hits: string[]; close(): Promise<void> }
 
-export async function start(handler: (req: IncomingMessage, url: URL, hits: string[]) => { status?: number; body?: unknown; text?: string }, tls?: { key: string; cert: string }): Promise<Mock> {
+export async function start(handler: (req: IncomingMessage, url: URL, hits: string[], body: any) => { status?: number; body?: unknown; text?: string }, tls?: { key: string; cert: string }): Promise<Mock> {
   const hits: string[] = [];
   const listener = (req: IncomingMessage, res: import("node:http").ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://mock");
     hits.push(`${req.method} ${url.pathname}${url.search}`);
-    const out = handler(req, url, hits);
-    res.writeHead(out.status ?? 200, { "Content-Type": out.text !== undefined ? "text/html" : "application/json" });
-    res.end(out.text !== undefined ? out.text : JSON.stringify(out.body ?? {}));
+    const chunks: Buffer[] = [];
+    req.on("data", c => chunks.push(c));
+    req.on("end", () => {
+      let parsed: any = null;
+      try { parsed = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : null; } catch { /* not JSON */ }
+      const out = handler(req, url, hits, parsed);
+      res.writeHead(out.status ?? 200, { "Content-Type": out.text !== undefined ? "text/html" : "application/json" });
+      res.end(out.text !== undefined ? out.text : JSON.stringify(out.body ?? {}));
+    });
   };
   const server = (tls ? createSecureServer(tls, listener) : createServer(listener)) as Server;
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));

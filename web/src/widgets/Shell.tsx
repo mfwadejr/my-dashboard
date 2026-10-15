@@ -34,3 +34,10 @@ export const uptime = (sec: number | null | undefined): string => {
   const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600);
   return d ? `${d}d ${h}h` : `${h}h ${Math.floor((sec % 3600) / 60)}m`;
 };
+
+export function bytes(b: number | null | undefined): string {
+  if (typeof b !== "number") return "–";
+  const u = ["B", "KB", "MB", "GB", "TB", "PB"]; let i = 0, v = b;
+  while (v >= 1000 && i < u.length - 1) { v /= 1000; i++; }
+  return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${u[i]}`;
+}

@@ -8,6 +8,8 @@ import { Prowlarr } from "./Prowlarr";
 import { Sab } from "./Sab";
 import { SiteGateway } from "./SiteGateway";
 import { UnifiNetwork, UnifiProtect } from "./Unifi";
+import { Unraid } from "./Unraid";
+import { Zima } from "./Zima";
 import type { WidgetDef } from "./types";
 
 /** Adding a tile type = one component here plus its name in server/src/dashboard.ts TILE_TYPES. */
@@ -21,6 +23,8 @@ export const WIDGETS: WidgetDef[] = [
   { type: "unifi-network", label: "UniFi Network", description: "Clients, devices, gateway load and WAN rate", size: [3, 3], needs: "unifi-network", component: UnifiNetwork },
   { type: "unifi-protect", label: "UniFi Protect", description: "Cameras connected or offline", size: [3, 2], needs: "unifi-protect", component: UnifiProtect },
   { type: "unifi-pdu", label: "UniFi PDU", description: "Power draw and outlet states", size: [3, 3], needs: "unifi-pdu", component: Pdu },
+  { type: "unraid", label: "Unraid", description: "Array, disks, Docker, VMs, CPU and memory", size: [3, 4], needs: "unraid", component: Unraid },
+  { type: "zimaos", label: "ZimaOS", description: "CPU, memory, storage, apps, updates", size: [3, 3], needs: "zimaos", component: Zima },
   { type: "camera", label: "Camera", description: "Live camera feed through go2rtc", size: [2, 2], component: Camera },
   { type: "clock", label: "Clock", description: "Time and date", size: [2, 1], component: Clock },
   { type: "notes", label: "Notes", description: "A sticky note", size: [2, 2], component: Notes }

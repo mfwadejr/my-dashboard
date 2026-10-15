@@ -114,3 +114,53 @@ test("PDU outlets are also understood from Integration-API style fields", () => 
   assert.deepEqual(outlets.map(o => [o.index, o.on, o.powerW]), [[1, true, 12.5], [2, false, null]]);
   assert.deepEqual(extractOutlets({ nothing: 1 }, null), []);
 });
+
+import { ZIMA_PASS, ZIMA_USER, mockUnraid, mockZima } from "./mocks3.js";
+
+test("Unraid: reads each section, tolerates a forbidden one, key stays in the header", async () => {
+  const un = await mockUnraid();
+  try {
+    assert.equal((await call("POST", "/api/integrations/test", { type: "unraid", url: un.url, apiKey: "bad" })).json().ok, false);
+    const t = (await call("POST", "/api/integrations/test", { type: "unraid", url: un.url, apiKey: KEY })).json();
+    assert.equal(t.ok, true); assert.match(t.message, /tower/); assert.match(t.message, /Not available.*vms/);
+    const id = await create({ type: "unraid", name: "Tower", url: un.url, apiKey: KEY });
+    const d = (await data(id)).data;
+    assert.equal(d.host.name, "tower"); assert.equal(d.cpuPct, 23.5); assert.equal(d.mem.pct, 37.5);
+    assert.equal(d.array.state, "STARTED"); assert.equal(d.array.usedPct, 75); assert.equal(d.array.disks.length, 4);
+    assert.equal(d.array.hottest, 52); assert.equal(d.array.diskProblems, 1); assert.equal(d.array.check.progress, 42);
+    assert.deepEqual([d.docker.total, d.docker.running, d.docker.updates, d.docker.stopped[0]], [3, 2, 1, "old-thing"]);
+    assert.equal(d.vms, null); assert.equal(d.notifications.warning, 1);
+    assert.ok(un.hits.every(h => !h.includes(KEY)));
+    assert.equal((await call("GET", `/api/metrics/${id}/docker_running?minutes=60`)).json()[0][1], 2);
+  } finally { await un.close(); }
+});
+
+test("Unraid: an older release without newer fields still works through the fallback queries", async () => {
+  const un = await mockUnraid({ legacy: true });
+  try {
+    const id = await create({ type: "unraid", name: "Old", url: un.url, apiKey: KEY });
+    const d = (await data(id)).data;
+    assert.equal(d.array.state, "STARTED"); assert.equal(d.array.totalKB, 4000); assert.equal(d.array.check, null);
+  } finally { await un.close(); }
+});
+
+test("ZimaOS: logs in once, reuses the token, never leaks the password", async () => {
+  const z = await mockZima();
+  try {
+    const bad = (await call("POST", "/api/integrations/test", { type: "zimaos", url: z.url, apiKey: `${ZIMA_USER}:wrongpass` })).json();
+    assert.equal(bad.ok, false); assert.match(bad.message, /rejected that username or password/);
+    assert.equal((await call("POST", "/api/integrations/test", { type: "zimaos", url: z.url, apiKey: "no-colon" })).json().ok, false);
+    const t = (await call("POST", "/api/integrations/test", { type: "zimaos", url: z.url, apiKey: `${ZIMA_USER}:${ZIMA_PASS}` })).json();
+    assert.equal(t.ok, true); assert.match(t.message, /1\.5\.3/);
+    const id = await create({ type: "zimaos", name: "Zima", url: z.url, apiKey: `${ZIMA_USER}:${ZIMA_PASS}` });
+    const loginsBefore = z.logins();
+    const d = (await data(id)).data;
+    await data(id);
+    assert.equal(z.logins() - loginsBefore, 0, "token from the test is reused (login is limited to 5/min)");
+    assert.equal(d.cpu.pct, 18.2); assert.equal(d.cpu.tempC, 51); assert.equal(d.mem.pct, 50); assert.equal(d.needUpdate, true);
+    assert.equal(d.systemDisk.pct, 25); assert.equal(d.disks[0].name, "sda"); assert.equal(d.apps, null);
+    assert.ok(!JSON.stringify([bad, t, d]).includes(ZIMA_PASS));
+    const row = JSON.stringify((await call("GET", "/api/integrations")).json());
+    assert.ok(!row.includes(ZIMA_PASS), "password never returned to the browser");
+  } finally { await z.close(); }
+});
