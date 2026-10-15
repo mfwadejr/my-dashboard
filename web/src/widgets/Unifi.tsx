@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import type { WidgetProps } from "./types";
 import { resolveSections } from "./sections";
 import { Bar, Empty, Pill } from "./common";
-import { Shell, pct, rate, uptime } from "./Shell";
+import { Gauge } from "./Gauge";
+import { Shell, bytes, pct, rate, uptime } from "./Shell";
 
 const state = (v: string) => v.toLowerCase().replace(/_/g, " ");
 
@@ -75,5 +76,23 @@ export function UnifiProtect(props: WidgetProps) {
         {d.cameras.disconnected === 0 && props.tile.h >= 2 && <Empty>All cameras connected</Empty>}
       </>
     )}</Shell>
+  );
+}
+
+export function UnifiUnas(props: WidgetProps) {
+  return (
+    <Shell props={props} label="UniFi UNAS">{d => {
+      const st = d.storage;
+      if (!st) return <Empty>Signed in, but this UNAS did not share storage numbers in a format Homebase knows yet. Run Test on the connection and send me the result.</Empty>;
+      const used = Math.round((st.usedB / st.totalB) * 100);
+      const ok = !st.status || /^(ok|healthy|normal|online|good|optimal|active)/i.test(st.status);
+      return (
+        <>
+          <div className="row sp"><span className="sub">{d.name ?? "UNAS"}</span>{st.status && <Pill tone={ok ? "ok" : "bad"}>{st.status.toLowerCase()}</Pill>}</div>
+          <div className="gauges"><Gauge pct={used} label="Used" warn={80} bad={92} detail={`${bytes(st.usedB)} of ${bytes(st.totalB)}`} /></div>
+          {st.availB != null && <div className="sub" style={{ textAlign: "center" }}>{bytes(st.availB)} free</div>}
+        </>
+      );
+    }}</Shell>
   );
 }

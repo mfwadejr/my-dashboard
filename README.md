@@ -7,7 +7,7 @@ A self-hosted dashboard with tabs, groups, resizable tiles, live app stats and c
 1. Open the ZimaOS App Store, click **+** (Custom Install) and import `deploy/compose.zimaos.yaml`.
 2. Open `http://<your-zima-ip>:3000`. Anyone on your network can view the dashboard.
 3. Click **Set up**, choose an admin password, then **Edit**. The password is only needed to change things.
-4. **Connections** → pick an app (Sonarr, Radarr, Prowlarr, SABnzbd, Site Gateway, Unraid, ZimaOS, UniFi Network/Protect/PDU) → enter the address and API key → **Test connection** → Save.
+4. **Connections** → pick an app (Sonarr, Radarr, Prowlarr, SABnzbd, Site Gateway, Unraid, ZimaOS, UniFi Network/Protect/PDU/UNAS) → enter the address and API key → **Test connection** → Save.
 5. **Add tile** in a group, choose the connection, and drag/resize tiles. Layout is saved automatically.
 
 To update, pull the newest image (`ghcr.io/mfwadejr/my-dashboard:latest`) and recreate the container. Your data lives in `/DATA/AppData/homebase/data`.
@@ -22,6 +22,7 @@ To update, pull the newest image (`ghcr.io/mfwadejr/my-dashboard:latest`) and re
 | Sonarr, Radarr, Prowlarr | the app's address | API key (Settings → General) |
 | SABnzbd | the app's address | API key |
 | Site Gateway | its dashboard address, e.g. `http://host:8080` | an API token (read-only is enough) |
+| UniFi UNAS | the UNAS address, for example `https://192.168.1.50` (tick the self-signed box) | a local, read-only UniFi account as `username:password` (the API key interface does not cover the UNAS). Unverified on real hardware: run Test and check which addresses answer |
 | Unraid | `http://tower` (use `https://` if your server uses SSL, and tick the self-signed box) | an API key from Settings → Management Access → API Keys (Unraid 7.2+) |
 | ZimaOS | `http://zima-ip` | your ZimaOS login as `username:password` (ZimaOS has no API keys; stored encrypted; a dedicated user is best) |
 | UniFi Network, Protect, PDU | the console, e.g. `https://192.168.1.1` | an API key created inside that UniFi application (Integrations) |
@@ -55,4 +56,4 @@ Built from the Homarr/app API behaviour and tested against mocks only. UniFi's r
 
 ## Roadmap
 
-Plex, Jellyfin, Seerr; UniFi UNAS (needs the probe output from real hardware); Unraid container start/stop; PDU outlet switching; feeding UniFi Protect cameras into the camera wall.
+Plex, Jellyfin, Seerr; UniFi UNAS drive details (needs the Test output from real hardware); Unraid container start/stop; PDU outlet switching; feeding UniFi Protect cameras into the camera wall.

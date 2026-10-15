@@ -7,6 +7,7 @@ import { buildApp } from "../src/index.js";
 import { KEY } from "./mocks.js";
 import { extractOutlets } from "../src/integrations/unifi.js";
 import { networkRates } from "../src/integrations/zimaos.js";
+import { findStorage } from "../src/integrations/unas.js";
 import { TOKEN, mockProwlarr, mockSiteGateway, mockUnifi, selfSigned } from "./mocks2.js";
 
 process.env.NODE_ENV = "test";
@@ -126,7 +127,7 @@ test("PDU outlets are also understood from Integration-API style fields", () => 
   assert.deepEqual(extractOutlets({ nothing: 1 }, null), []);
 });
 
-import { ZIMA_PASS, ZIMA_USER, mockUnraid, mockZima } from "./mocks3.js";
+import { UNAS_PASS, UNAS_USER, ZIMA_PASS, ZIMA_USER, mockUnas, mockUnraid, mockZima } from "./mocks3.js";
 
 test("Unraid: reads each section, tolerates a forbidden one, key stays in the header", async () => {
   const un = await mockUnraid();
@@ -205,4 +206,28 @@ test("Live samples: sampling starts on request, returns rates, only for types th
     const nid = await create({ type: "unifi-network", name: "No live", url: unifi.url, apiKey: KEY });
     assert.equal((await call("GET", `/api/integrations/${nid}/live`)).statusCode, 404);
   } finally { await z.close(); }
+});
+
+test("UNAS: signs in with a local account, sends the cookie, reads storage loosely, never leaks the password", async () => {
+  const u = await mockUnas();
+  try {
+    const bad = (await call("POST", "/api/integrations/test", { type: "unifi-unas", url: u.url, apiKey: `${UNAS_USER}:wrong-pass` })).json();
+    assert.equal(bad.ok, false); assert.ok(!JSON.stringify(bad).includes("wrong-pass"));
+    assert.equal((await call("POST", "/api/integrations/test", { type: "unifi-unas", url: u.url, apiKey: "no-colon" })).json().ok, false);
+    const t = (await call("POST", "/api/integrations/test", { type: "unifi-unas", url: u.url, apiKey: `${UNAS_USER}:${UNAS_PASS}` })).json();
+    assert.equal(t.ok, true); assert.match(t.message, /\/proxy\/drive\/api\/v2\/storage: answers \(pools\)/); assert.match(t.message, /\/api\/system: answers \(name, version\)/);
+    assert.ok(u.cookies.every(c => c.includes("TOKEN=jwt.abc")), "the session cookie is sent on every request");
+    const id = await create({ type: "unifi-unas", name: "UNAS", url: u.url, apiKey: `${UNAS_USER}:${UNAS_PASS}` });
+    const d = (await data(id)).data;
+    assert.equal(d.name, "Garage UNAS");
+    assert.deepEqual(d.storage, { totalB: 8e12, usedB: 2e12, availB: 6e12, status: "healthy" });
+    assert.ok(!JSON.stringify([bad, t, d]).includes(UNAS_PASS));
+  } finally { await u.close(); }
+});
+
+test("UNAS storage reader: shallowest match, derives missing numbers, rejects junk", () => {
+  assert.deepEqual(findStorage({ size: 100, used: 40 }), { totalB: 100, usedB: 40, availB: 60, status: null });
+  assert.deepEqual(findStorage({ used: 30, free: 70, state: "OK" }), { totalB: 100, usedB: 30, availB: 70, status: "OK" });
+  assert.equal(findStorage({ drives: [{ size: 5 }] }), null, "a lone drive size with no used figure is not a storage reading");
+  assert.equal(findStorage({ name: "x" }), null);
 });

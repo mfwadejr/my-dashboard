@@ -4,12 +4,13 @@ import { sabnzbd } from "./sabnzbd.js";
 import { siteGateway } from "./sitegateway.js";
 import { unraid } from "./unraid.js";
 import { zimaos } from "./zimaos.js";
+import { unifiUnas } from "./unas.js";
 import { unifiNetwork, unifiPdu, unifiProbe, unifiProtect } from "./unifi.js";
 import type { IntegrationType } from "./types.js";
 
 /** Adding an app = write one file that exports an IntegrationType, then list it here. */
 export const INTEGRATION_TYPES: Record<string, IntegrationType> = Object.fromEntries(
-  [sonarr, radarr, prowlarr, sabnzbd, siteGateway, unifiNetwork, unifiPdu, unifiProtect, unifiProbe, unraid, zimaos].map(type => [type.id, type])
+  [sonarr, radarr, prowlarr, sabnzbd, siteGateway, unifiNetwork, unifiPdu, unifiProtect, unifiProbe, unraid, zimaos, unifiUnas].map(type => [type.id, type])
 );
 
 export function publicTypeInfo() {

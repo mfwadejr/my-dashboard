@@ -55,3 +55,23 @@ export function mockZima(): Promise<Mock & { logins: () => number }> {
     }
   }).then(m => Object.assign(m, { logins: () => logins }));
 }
+
+export const UNAS_USER = "reader", UNAS_PASS = "unas-pass-9";
+export function mockUnas(): Promise<Mock & { logins: () => number; cookies: string[] }> {
+  let logins = 0;
+  const cookies: string[] = [];
+  return start((req, url, _h, body) => {
+    if (url.pathname === "/api/auth/login") {
+      logins++;
+      if (body?.username !== UNAS_USER || body?.password !== UNAS_PASS) return { status: 401, body: { error: "bad" } };
+      return { body: { username: UNAS_USER }, headers: { "Set-Cookie": ["TOKEN=jwt.abc; Path=/; HttpOnly", "other=1"], "X-CSRF-Token": "csrf-1" } };
+    }
+    cookies.push(String(req.headers.cookie ?? ""));
+    if (!String(req.headers.cookie ?? "").includes("TOKEN=jwt.abc")) return { status: 401, body: {} };
+    switch (url.pathname) {
+      case "/api/system": return { body: { name: "Garage UNAS", version: "1.0" } };
+      case "/proxy/drive/api/v2/storage": return { body: { data: { pools: [{ status: "healthy", capacity: { total: 8000000000000, used: 2000000000000, available: 6000000000000 } }] } } };
+      default: return { status: 404 };
+    }
+  }).then(m => Object.assign(m, { logins: () => logins, cookies }));
+}

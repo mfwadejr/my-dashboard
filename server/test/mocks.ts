@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 
 export interface Mock { server: Server; url: string; hits: string[]; close(): Promise<void> }
 
-export async function start(handler: (req: IncomingMessage, url: URL, hits: string[], body: any) => { status?: number; body?: unknown; text?: string }, tls?: { key: string; cert: string }): Promise<Mock> {
+export async function start(handler: (req: IncomingMessage, url: URL, hits: string[], body: any) => { status?: number; body?: unknown; text?: string; headers?: Record<string, string | string[]> }, tls?: { key: string; cert: string }): Promise<Mock> {
   const hits: string[] = [];
   const listener = (req: IncomingMessage, res: import("node:http").ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://mock");
@@ -15,7 +15,7 @@ export async function start(handler: (req: IncomingMessage, url: URL, hits: stri
       let parsed: any = null;
       try { parsed = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : null; } catch { /* not JSON */ }
       const out = handler(req, url, hits, parsed);
-      res.writeHead(out.status ?? 200, { "Content-Type": out.text !== undefined ? "text/html" : "application/json" });
+      res.writeHead(out.status ?? 200, { "Content-Type": out.text !== undefined ? "text/html" : "application/json", ...(out.headers ?? {}) });
       res.end(out.text !== undefined ? out.text : JSON.stringify(out.body ?? {}));
     });
   };
