@@ -1,0 +1,6 @@
+.github-token
+*.token
+.env
+node_modules/
+data/
+.DS_Store
