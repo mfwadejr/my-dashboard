@@ -131,3 +131,11 @@ dialog::backdrop{background:rgba(0,0,0,.55);backdrop-filter:blur(3px)}
 .outlet{display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;border-radius:8px;background:var(--panel);min-width:0}
 .outlet .sub{margin-left:auto;font-size:11px}
 .dot.mute{background:var(--mute);box-shadow:none}
+
+.outlet .sock{display:inline-flex;flex:none;color:var(--mute)}
+.outlet.on .sock{color:var(--ok)}
+.outlet.warn .sock{color:var(--warn)}
+.outlet.hot .sock{color:var(--bad)}
+.outlet.warn .sub{color:var(--warn)}
+.outlet.hot .sub{color:var(--bad)}
+.outlet.off{opacity:.7}

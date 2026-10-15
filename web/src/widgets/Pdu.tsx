@@ -2,6 +2,33 @@ import type { WidgetProps } from "./types";
 import { Bar, Empty, Pill } from "./common";
 import { Shell, uptime } from "./Shell";
 
+/** AC outlets are rated 15 A at 120 V; amber at 60% of that, red at the 80% continuous-load limit. USB ports are far smaller. */
+const AC_WARN_W = 1080, AC_HOT_W = 1440, USB_WARN_W = 15, USB_HOT_W = 25;
+
+const isUsb = (o: any) => /usb/i.test(String(o.name));
+function level(o: any): "off" | "on" | "warn" | "hot" {
+  if (o.on !== true) return "off";
+  const w = o.powerW ?? 0;
+  const [warn, hot] = isUsb(o) ? [USB_WARN_W, USB_HOT_W] : [AC_WARN_W, AC_HOT_W];
+  return w >= hot ? "hot" : w >= warn ? "warn" : "on";
+}
+
+function Socket({ usb }: { usb: boolean }) {
+  return usb ? (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <rect x="2.5" y="8" width="19" height="8" rx="4" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="6.5" y="11" width="11" height="2" rx="1" fill="currentColor" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="7.2" y="7.5" width="2" height="5" rx="1" fill="currentColor" />
+      <rect x="14.8" y="7.5" width="2" height="5" rx="1" fill="currentColor" />
+      <path d="M12 14.5v2.5M10.3 14.5h3.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+    </svg>
+  );
+}
+
 export function Pdu(props: WidgetProps) {
   return (
     <Shell props={props} label="UniFi PDU">{d => (
@@ -23,8 +50,8 @@ export function Pdu(props: WidgetProps) {
             {props.tile.h >= 3 && (
               <div className="outlets">
                 {p.outlets.map((o: any) => (
-                  <div key={o.index} className={`outlet ${o.on ? "on" : ""}`} title={o.voltageV ? `${o.voltageV} V · ${o.currentA ?? "–"} A` : undefined}>
-                    <span className={`dot ${o.on === false ? "bad" : o.on ? "" : "mute"}`} style={{ position: "static" }} />
+                  <div key={o.index} className={`outlet ${level(o)}`} title={o.voltageV ? `${o.voltageV} V · ${o.currentA ?? "–"} A` : undefined}>
+                    <span className="sock"><Socket usb={isUsb(o)} /></span>
                     <span className="trunc">{o.name}</span>
                     <span className="sub">{o.powerW !== null ? `${o.powerW < 10 ? o.powerW.toFixed(1) : Math.round(o.powerW)} W` : o.on === false ? "off" : ""}</span>
                   </div>
