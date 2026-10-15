@@ -48,6 +48,7 @@ test("Site Gateway: bearer token, attention items, single request per poll", asy
   const good = (await call("POST", "/api/integrations/test", { type: "sitegateway", url: gateway.url, apiKey: TOKEN })).json();
   assert.equal(good.ok, true); assert.match(good.message, /0\.17\.7/);
   const id = await create({ type: "sitegateway", name: "Gateway", url: gateway.url, apiKey: TOKEN });
+  await new Promise(r => setTimeout(r, 400)); // creating a connection starts its own first poll; let it finish before counting
   const before = gateway.hits.length;
   const d = (await data(id)).data;
   assert.equal(gateway.hits.length - before, 1, "bursts would trip Site Gateway's 10/min bearer limit");
