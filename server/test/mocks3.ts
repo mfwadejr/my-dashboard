@@ -44,7 +44,7 @@ export function mockZima(): Promise<Mock & { logins: () => number }> {
     }
     if (req.headers.authorization !== TOKEN) return { status: 401, body: { success: 401 } };
     switch (url.pathname) {
-      case "/v1/sys/utilization": return { body: { success: 200, data: { cpu: { percent: 18.2, num: 4, temperature: 51, power: 9.5, model: "intel" }, mem: { total: 8589934592, used: 4294967296, usedPercent: 50 }, net: [] } } };
+      case "/v1/sys/utilization": return { body: { success: 200, data: { cpu: { percent: 18.2, num: 4, temperature: 51, power: 9.5, model: "intel" }, mem: { total: 8589934592, used: 4294967296, usedPercent: 50 }, net: [{ name: "lo", bytesSent: 5, bytesRecv: 5 }, { name: "docker0", bytesSent: 900, bytesRecv: 900 }, { name: "eth0", bytesSent: 1000, bytesRecv: 2000 }] } } };
       case "/v1/sys/version/check": return { body: { success: 200, data: { need_update: true, version: "1.5.4", current_version: "1.5.3" } } };
       case "/v1/sys/hardware/info": return { body: { success: 200, data: { drive_model: "ZimaCube", arch: "amd64" } } };
       case "/v1/sys/disk": return { body: { success: 200, data: { size: 100000000000, used: 25000000000, avail: 75000000000 } } };

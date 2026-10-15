@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { buildApp } from "../src/index.js";
 import { KEY } from "./mocks.js";
 import { extractOutlets } from "../src/integrations/unifi.js";
+import { networkRates } from "../src/integrations/zimaos.js";
 import { TOKEN, mockProwlarr, mockSiteGateway, mockUnifi, selfSigned } from "./mocks2.js";
 
 process.env.NODE_ENV = "test";
@@ -176,4 +177,15 @@ test("ZimaOS: logs in once, reuses the token, never leaks the password", async (
     const row = JSON.stringify((await call("GET", "/api/integrations")).json());
     assert.ok(!row.includes(ZIMA_PASS), "password never returned to the browser");
   } finally { await z.close(); }
+});
+
+test("ZimaOS network: rates come from counter deltas, virtual ports are skipped, resets are not negative", () => {
+  const doc = (sent: number, recv: number) => ({ net: [{ name: "docker0", bytesSent: 9e9, bytesRecv: 9e9 }, { name: "eth0", bytesSent: sent, bytesRecv: recv }] });
+  const first = networkRates("k", doc(1000, 2000), 1_000_000)!;
+  assert.equal(first.iface, "eth0"); assert.equal(first.upBps, null, "no rate until there are two readings");
+  const second = networkRates("k", doc(11_000, 7_000), 1_010_000)!;
+  assert.deepEqual([second.upBps, second.downBps], [1000, 500]);
+  const reset = networkRates("k", doc(5, 5), 1_020_000)!;
+  assert.equal(reset.upBps, null, "a counter that went backwards (reboot) gives no rate instead of a negative one");
+  assert.equal(networkRates("none", { net: [] }), null);
 });

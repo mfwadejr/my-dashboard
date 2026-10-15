@@ -16,6 +16,7 @@ export const SECTION_DEFS: Record<string, SectionDef[]> = {
   ],
   zimaos: [
     { id: "summary", label: "CPU, RAM and temperature", hint: "Headline numbers with a memory bar", on: true },
+    { id: "network", label: "Network", hint: "Upload and download speed of the main network port, with a short history graph", on: false },
     { id: "systemdisk", label: "System disk", hint: "Used and total space on the system drive", on: true },
     { id: "appcount", label: "App count", hint: "How many apps are running", on: true },
     { id: "apps", label: "App list", hint: "Every installed app with its state", on: false },

@@ -117,7 +117,33 @@ async function readAll(ctx: Ctx): Promise<{ docs: Partial<Record<Name, any>>; fa
   return { docs, failed };
 }
 
-function shape(d: Partial<Record<Name, any>>) {
+/** The counters ZimaOS reports are running totals, so a rate needs the previous poll. They are kept here per connection. */
+const lastNet = new Map<string, { at: number; bytes: Map<string, { sent: number; recv: number }> }>();
+const VIRTUAL_IF = /^(lo|docker|veth|br-|virbr|tun|tap|zt|tailscale)/i;
+
+export function networkRates(key: string, doc: any, now = Date.now()) {
+  const list = Array.isArray(doc?.net) ? doc.net : [];
+  const cur = new Map<string, { sent: number; recv: number }>();
+  for (const n of list) {
+    const name = typeof n?.name === "string" ? n.name : null;
+    const sent = num(n?.bytesSent ?? n?.bytes_sent), recv = num(n?.bytesRecv ?? n?.bytes_recv);
+    if (name && sent !== null && recv !== null) cur.set(name, { sent, recv });
+  }
+  if (!cur.size) return null;
+  const prev = lastNet.get(key);
+  lastNet.set(key, { at: now, bytes: cur });
+  const secs = prev ? (now - prev.at) / 1000 : 0;
+  const interfaces = [...cur.entries()].map(([name, c]) => {
+    const p = prev?.bytes.get(name);
+    const ok = p && secs >= 1 && c.sent >= p.sent && c.recv >= p.recv;
+    return { name, virtual: VIRTUAL_IF.test(name), totalB: c.sent + c.recv, upBps: ok ? (c.sent - p!.sent) / secs : null, downBps: ok ? (c.recv - p!.recv) / secs : null };
+  });
+  const real = interfaces.filter(i => !i.virtual);
+  const primary = real.find(i => i.name === "eth0") ?? [...(real.length ? real : interfaces)].sort((a, b) => b.totalB - a.totalB)[0];
+  return { iface: primary.name, upBps: primary.upBps, downBps: primary.downBps, interfaces: interfaces.map(({ name, upBps, downBps, virtual }) => ({ name, upBps, downBps, virtual })) };
+}
+
+function shape(d: Partial<Record<Name, any>>, key = "") {
   const cpu = d.utilization?.cpu, mem = d.utilization?.mem;
   const memTotal = num(mem?.total), memUsed = num(mem?.used);
   const memPct = num(mem?.usedPercent ?? mem?.used_percent) ?? (memTotal && memUsed !== null ? (memUsed / memTotal) * 100 : null);
@@ -140,6 +166,7 @@ function shape(d: Partial<Record<Name, any>>) {
     return { name, id, state: st || null, running: isRunning(st), hint: hint(a) };
   }).slice(0, 60);
   return {
+    net: networkRates(key, d.utilization),
     version: d.version?.current_version ?? d.version?.version ?? null, needUpdate: d.version?.need_update === true, latest: d.version?.version ?? null,
     arch: d.hardware?.arch ?? null, device: d.hardware?.drive_model ?? null,
     cpu: cpu ? { pct: num(cpu.percent), cores: num(cpu.num), tempC: num(cpu.temperature), powerW: num(cpu.power) } : null,
@@ -164,10 +191,11 @@ async function test(ctx: Ctx): Promise<TestResult> {
 
 async function poll(ctx: Ctx): Promise<PollResult> {
   const { docs } = await readAll(ctx);
-  const data = shape(docs);
+  const data = shape(docs, `${ctx.url}|${ctx.apiKey}`);
   const metrics: Record<string, number> = {};
   const put = (k: string, v: number | null | undefined) => { if (typeof v === "number" && Number.isFinite(v)) metrics[k] = v; };
   put("cpu_pct", data.cpu?.pct); put("cpu_temp_c", data.cpu?.tempC); put("mem_pct", data.mem?.pct); put("system_disk_pct", data.systemDisk?.pct);
+  put("net_up_bps", data.net?.upBps); put("net_down_bps", data.net?.downBps);
   put("apps_running", data.apps?.known ? data.apps.running : null);
   if (data.containers) put("containers_running", data.containers.filter(c => c.running).length);
   if (data.vms) put("vms_running", data.vms.filter(v => v.running).length);
