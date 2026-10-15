@@ -54,7 +54,7 @@ export function mockUnifi(tls?: { key: string; cert: string }): Promise<Mock> {
       { id: "d1", name: "Dream Machine", model: "UDM-Pro", type: "UDM", state: "ONLINE" },
       { id: "d2", name: "Office AP", model: "U7-Pro", type: "UAP", state: "ONLINE" },
       { id: "d3", name: "Garage AP", model: "U6-LR", type: "UAP", state: "OFFLINE" },
-      { id: "d4", mac: "aa:bb:cc:00:00:04", name: "Rack PDU", model: "USP-PDU-Pro", type: "USP", state: "ONLINE" }] } };
+      { id: "d4", macAddress: "aa:bb:cc:00:00:04", name: "Rack PDU", model: "USP-PDU-Pro", type: "USP", state: "ONLINE" }] } };
     if (p === `/proxy/network/integration/v1/sites/${SITE}/devices/d1/statistics/latest`) return { body: { uptimeSec: 86400, cpuUtilizationPct: 12.5, memoryUtilizationPct: 48, uplink: { txRateBps: 2_000_000, rxRateBps: 9_000_000 } } };
     if (p === `/proxy/network/integration/v1/sites/${SITE}/devices/d4/statistics/latest`) return { body: { uptimeSec: 5, outletPowerW: 1 } };
     if (p === `/proxy/network/integration/v1/sites/${SITE}/devices/d4`) return { body: { id: "d4", name: "Rack PDU", model: "USP-PDU-Pro", state: "ONLINE", secretish: "x" } };

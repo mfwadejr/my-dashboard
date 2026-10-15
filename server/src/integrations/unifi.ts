@@ -154,7 +154,7 @@ async function readPdus(ctx: Ctx, site: any, devices: any[]) {
       get(ctx, `${NET}/sites/${site.id}/devices/${d.id}`).catch(() => null),
       get(ctx, `${NET}/sites/${site.id}/devices/${d.id}/statistics/latest`).catch(() => null),
       // The classic API is what exposes per-outlet power on current firmware. An API key may not be accepted there, so it is optional.
-      d.mac ? get(ctx, `/proxy/network/api/s/${siteName}/stat/device/${encodeURIComponent(String(d.mac))}`).then(r => items(r?.data ? r.data : r)[0] ?? null).catch(() => null) : Promise.resolve(null)
+      (d.macAddress ?? d.mac) ? get(ctx, `/proxy/network/api/s/${siteName}/stat/device/${encodeURIComponent(String(d.macAddress ?? d.mac))}`).then(r => items(r?.data ? r.data : r)[0] ?? null).catch(() => null) : Promise.resolve(null)
     ]);
     const outlets = extractOutlets(classic, stats, detail);
     const budget = firstNum(classic?.outlet_ac_power_budget);

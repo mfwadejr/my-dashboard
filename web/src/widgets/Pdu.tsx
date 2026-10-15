@@ -24,7 +24,7 @@ export function Pdu(props: WidgetProps) {
                     <span className="sub">{o.metered && o.powerW !== null ? `${Math.round(o.powerW)} W` : o.on === false ? "off" : ""}</span>
                   </div>
                 ))}
-                {p.outlets.length === 0 && <span className="sub">Outlet details are not available from this console yet.</span>}
+                {p.outlets.length === 0 && <span className="sub">UniFi does not share outlet or power data over the API key for this PDU.</span>}
               </div>
             )}
           </div>
