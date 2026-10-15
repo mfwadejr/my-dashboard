@@ -7,7 +7,7 @@ services:
     container_name: homebase
     restart: unless-stopped
     ports:
-      - "9286:3000"
+      - "3000:3000"
     environment:
       # go2rtc runs on the host network (see below), so Homebase reaches it through the host.
       GO2RTC_URL: http://host.docker.internal:1984
@@ -33,26 +33,3 @@ services:
     network_mode: host
     volumes:
       - /DATA/AppData/homebase/go2rtc:/config
-
-# ZimaOS / CasaOS app metadata (shows the app tile, icon and "Open" button in the dashboard)
-x-casaos:
-  id: com.mfwadejr.homebase
-  main: homebase
-  index: /
-  port_map: "9286"
-  scheme: http
-  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/homarr.png
-  title:
-    en_US: Homebase
-  tagline:
-    en_US: Customizable dashboard with live app stats and camera feeds
-  description:
-    en_US: Tabs, groups and resizable tiles with live Sonarr, Radarr and SABnzbd stats, plus RTSP camera tiles through go2rtc.
-  author: Marvin Wade
-  developer: Marvin Wade
-  category: Home
-  architectures:
-    - amd64
-    - arm64
-  version: "0.1.0"
-  repo: https://github.com/mfwadejr/my-dashboard

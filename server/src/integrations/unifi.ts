@@ -108,7 +108,13 @@ async function protectPoll(ctx: Ctx): Promise<PollResult> {
 
 const PDU_MODEL = /pdu/i;
 const truthy = (v: unknown): boolean | null => (typeof v === "boolean" ? v : typeof v === "string" ? ["on", "true", "1", "enabled"].includes(v.toLowerCase()) : typeof v === "number" ? v !== 0 : null);
-const firstNum = (...vals: unknown[]): number | null => { for (const v of vals) if (typeof v === "number" && Number.isFinite(v)) return v; return null; };
+const firstNum = (...vals: unknown[]): number | null => {
+  for (const v of vals) {
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) return Number(v);
+  }
+  return null;
+};
 
 export interface Outlet { index: number; name: string; on: boolean | null; powerW: number | null; currentA: number | null; voltageV: number | null; metered: boolean }
 
@@ -123,13 +129,13 @@ export function extractOutlets(...docs: any[]): Outlet[] {
     if (!key) continue;
     return (doc[key] as any[]).map((o, i) => {
       const caps = firstNum(o.outlet_caps, o.caps);
-      const powerW = firstNum(o.outlet_power, o.power, o.powerW, o.powerWatts, o.outletPowerW);
+      const powerW = firstNum(o.outlet_power, o.power, o.power_w, o.powerW, o.powerWatts, o.outletPowerW, o.watts, o.active_power);
       return {
         index: firstNum(o.index, o.outletIndex, o.id) ?? i + 1,
         name: String(o.name ?? o.label ?? `Outlet ${i + 1}`),
         on: truthy(o.relay_state ?? o.relayState ?? o.state ?? o.on ?? o.isOn ?? o.enabled),
         powerW, currentA: firstNum(o.outlet_current, o.current, o.currentA), voltageV: firstNum(o.outlet_voltage, o.voltage, o.voltageV),
-        metered: caps !== null ? caps === 3 : powerW !== null
+        metered: powerW !== null || (caps !== null && (caps & 2) === 2)
       };
     });
   }
@@ -139,10 +145,18 @@ export function extractOutlets(...docs: any[]): Outlet[] {
 function totalWatts(...docs: any[]): number | null {
   for (const doc of docs) {
     if (!doc || typeof doc !== "object") continue;
-    const v = firstNum(doc.outlet_ac_power_consumption, doc.powerConsumptionW, doc.totalPowerW, doc.acPowerConsumptionW);
+    const v = firstNum(doc.outlet_ac_power_consumption, doc.total_power, doc.powerConsumptionW, doc.totalPowerW, doc.acPowerConsumptionW, doc.power_consumption, doc.sum_power);
     if (v !== null) return v;
   }
   return null;
+}
+
+/** Key names only (never values) that look power-related, so the real field names can be confirmed on real hardware. */
+function powerFieldHint(classic: any): string {
+  if (!classic || typeof classic !== "object") return "";
+  const dev = Object.keys(classic).filter(k => /power|watt|outlet|current|volt/i.test(k)).slice(0, 12);
+  const first = Array.isArray(classic.outlet_table) && classic.outlet_table[0] && typeof classic.outlet_table[0] === "object" ? Object.keys(classic.outlet_table[0]).slice(0, 16) : [];
+  return `device: ${dev.join(",")} | outlet: ${first.join(",")}`;
 }
 
 async function readPdus(ctx: Ctx, site: any, devices: any[]) {
@@ -162,7 +176,8 @@ async function readPdus(ctx: Ctx, site: any, devices: any[]) {
     pdus.push({
       id: String(d.id), name: String(d.name ?? d.model), model: String(d.model ?? ""), state: String(d.state ?? ""),
       uptimeSec: firstNum(stats?.uptimeSec), totalW: watts, budgetW: budget,
-      source: classic?.outlet_table ? "classic" : outlets.length ? "integration" : "none", outlets
+      source: classic?.outlet_table ? "classic" : outlets.length ? "integration" : "none", outlets,
+      fields: powerFieldHint(classic)
     });
   }
   return pdus;

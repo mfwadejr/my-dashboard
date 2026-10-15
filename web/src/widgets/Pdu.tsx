@@ -15,13 +15,14 @@ export function Pdu(props: WidgetProps) {
               <span className="sub">{p.budgetW ? `of ${Math.round(p.budgetW)} W` : p.uptimeSec ? `up ${uptime(p.uptimeSec)}` : ""}</span>
             </div>
             {p.budgetW && p.totalW !== null && <Bar value={p.totalW / p.budgetW} tone={p.totalW / p.budgetW > 0.8 ? "warn" : undefined} />}
+            {p.totalW === null && p.fields && <div className="sub" style={{ wordBreak: "break-word" }}>No watt reading found. UniFi sent: {p.fields}</div>}
             {props.tile.h >= 3 && (
               <div className="outlets">
                 {p.outlets.map((o: any) => (
                   <div key={o.index} className={`outlet ${o.on ? "on" : ""}`} title={o.voltageV ? `${o.voltageV} V · ${o.currentA ?? "–"} A` : undefined}>
                     <span className={`dot ${o.on === false ? "bad" : o.on ? "" : "mute"}`} style={{ position: "static" }} />
                     <span className="trunc">{o.name}</span>
-                    <span className="sub">{o.metered && o.powerW !== null ? `${Math.round(o.powerW)} W` : o.on === false ? "off" : ""}</span>
+                    <span className="sub">{o.powerW !== null ? `${o.powerW < 10 ? o.powerW.toFixed(1) : Math.round(o.powerW)} W` : o.on === false ? "off" : ""}</span>
                   </div>
                 ))}
                 {p.outlets.length === 0 && <span className="sub">UniFi does not share outlet or power data over the API key for this PDU.</span>}
