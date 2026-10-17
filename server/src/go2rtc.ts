@@ -9,6 +9,16 @@ export const STREAM_NAME = /^cam-[A-Za-z0-9]+(-sub)?$/;
 
 /** Only these source schemes are accepted. go2rtc also supports exec:/ffmpeg:/echo: sources, which can run commands. */
 const SOURCE = /^(rtsp|rtsps|rtmp|http|https):\/\/[^\s]+$/i;
+/**
+ * UniFi Protect shows a secure link (rtsps://host:7441/<token>?enableSrtp) that go2rtc usually cannot play. The same stream is served as
+ * plain RTSP on port 7447 with the same token. Only that exact shape is rewritten; any other address is left as it is.
+ */
+const UNIFI_SECURE = /^rtsps:\/\/((?:[^\/\s@]+@)?[^\/\s:@]+):7441(\/[^\s?#]+)(?:\?enableSrtp(?:=[^\s&]*)?)?$/i;
+export function convertUnifiSource(url: string): { url: string; converted: boolean } {
+  const m = UNIFI_SECURE.exec(url);
+  return m ? { url: `rtsp://${m[1]}:7447${m[2]}`, converted: true } : { url, converted: false };
+}
+
 export function validCameraSource(url: string): boolean { return url.length <= 600 && SOURCE.test(url); }
 
 export class Go2rtc {

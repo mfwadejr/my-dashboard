@@ -1,17 +1,17 @@
 import httpProxy from "@fastify/http-proxy";
 import type { FastifyInstance, preHandlerAsyncHookHandler } from "fastify";
-import { STREAM_NAME, validCameraSource, type Go2rtc } from "../go2rtc.js";
+import { STREAM_NAME, convertUnifiSource, validCameraSource, type Go2rtc } from "../go2rtc.js";
 import type { Store } from "../store.js";
 
 function parse(body: any, existing = false) {
   const name = String(body?.name ?? "").trim() || "Camera";
-  const main = String(body?.main ?? "").trim();
-  const sub = String(body?.sub ?? "").trim();
+  const mainIn = convertUnifiSource(String(body?.main ?? "").trim()), subIn = convertUnifiSource(String(body?.sub ?? "").trim());
+  const main = mainIn.url, sub = subIn.url;
   if (name.length > 60) throw new Error("The name is too long");
   if (!validCameraSource(main)) throw new Error("The main stream must be an rtsp://, rtsps://, rtmp://, http:// or https:// address");
   if (sub && !validCameraSource(sub)) throw new Error("The sub-stream must be an rtsp://, rtsps://, rtmp://, http:// or https:// address");
   void existing;
-  return { name, main, sub };
+  return { name, main, sub, converted: mainIn.converted || subIn.converted };
 }
 
 /** Playback paths the browser may reach on go2rtc. Everything else (config, stream management, exec sources) stays blocked. */
@@ -28,9 +28,10 @@ export async function cameraRoutes(app: FastifyInstance, store: Store, go2rtc: G
 
   app.post("/api/cameras", { preHandler: requireAuth }, async (request, reply) => {
     try {
-      const id = store.createCamera(parse(request.body));
+      const { converted, ...cam } = parse(request.body);
+      const id = store.createCamera(cam);
       await go2rtc.upsert(id).catch(() => { /* reported by status; reconcile retries every minute */ });
-      return { id };
+      return { id, converted };
     } catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : "Invalid camera" }); }
   });
 
@@ -38,9 +39,10 @@ export async function cameraRoutes(app: FastifyInstance, store: Store, go2rtc: G
     const { id } = request.params as { id: string };
     if (!store.getCamera(id)) return reply.code(404).send({ error: "Not found" });
     try {
-      store.updateCamera(id, parse(request.body, true));
+      const { converted, ...cam } = parse(request.body, true);
+      store.updateCamera(id, cam);
       await go2rtc.upsert(id).catch(() => {});
-      return { ok: true };
+      return { ok: true, converted };
     } catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : "Invalid camera" }); }
   });
 

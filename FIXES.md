@@ -10,6 +10,7 @@ Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 - Verify against real hardware: Protect, Prowlarr, Site Gateway, Unraid, ZimaOS.
 
 ## Done
+- Cameras: UniFi Protect secure links (rtsps://…:7441/…?enableSrtp) are converted to plain RTSP (port 7447) automatically, in the dialog and on the server.
 - Unraid: pick-and-order sections, CPU/RAM gauges and history, container and VM lists with start/stop/restart (signed in, asks first), parity check progress and last result, share usage.
 - Site Gateway: pick-and-order sections, full attention list (critical first), traffic graph, upstreams and streams, certificate expiry, version and public address.
 - Prowlarr: pick-and-order sections, failure stats (success %, failed searches/grabs), full indexer list (state, protocol, priority, failure rate), recent searches and grabs, and a Test all indexers button.

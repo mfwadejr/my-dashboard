@@ -217,6 +217,24 @@ test("metrics history is stored and served", async () => {
   assert.ok(series.length >= 1); assert.equal(series[0][1], 2);
 });
 
+test("cameras: UniFi's secure rtsps link is converted to the plain rtsp address, and nothing else is touched", async () => {
+  const made = await call("POST", "/api/cameras", { name: "Garage", main: "rtsps://192.168.1.2:7441/cameraToken12345?enableSrtp", sub: "rtsp://192.168.1.2:7447/tok2" });
+  assert.equal(made.json().converted, true);
+  assert.equal(g2.streams.get(`cam-${made.json().id}`), "rtsp://192.168.1.2:7447/cameraToken12345");
+  assert.equal(g2.streams.get(`cam-${made.json().id}-sub`), "rtsp://192.168.1.2:7447/tok2");
+  const keep = [["rtsps://cam.example:322/x?enableSrtp", "other port"], ["rtsps://192.168.1.2:7441/tok?other=1", "other query"], ["rtsp://192.168.1.2:7441/tok", "already plain"], ["https://h:7441/tok?enableSrtp", "not rtsps"]];
+  const made2: string[] = [];
+  for (const [src, why] of keep) {
+    const r = await call("POST", "/api/cameras", { name: "k", main: src });
+    assert.equal(r.json().converted, false, why);
+    assert.equal(g2.streams.get(`cam-${r.json().id}`), src, why);
+    made2.push(r.json().id);
+  }
+  const authed = await call("POST", "/api/cameras", { name: "Door", main: "rtsps://admin:pw@10.0.0.5:7441/abc?enableSrtp" });
+  assert.equal(g2.streams.get(`cam-${authed.json().id}`), "rtsp://admin:pw@10.0.0.5:7447/abc");
+  for (const id of [made.json().id, authed.json().id, ...made2]) await call("DELETE", `/api/cameras/${id}`);
+});
+
 test("cameras: only safe sources, passwords hidden, synced to go2rtc, orphan cleanup", async () => {
   for (const evil of ["exec:rm -rf /", "ffmpeg:x#video=h264", "file:///etc/passwd", "rtsp://ok host/x"]) {
     assert.equal((await call("POST", "/api/cameras", { name: "x", main: evil })).statusCode, 400, evil);
