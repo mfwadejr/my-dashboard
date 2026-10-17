@@ -14,6 +14,22 @@ export const SECTION_DEFS: Record<string, SectionDef[]> = {
     { id: "devices", label: "All devices", hint: "Every UniFi device with state and firmware-update flag", on: false },
     { id: "problems", label: "Offline devices", hint: "Devices that are not online (or an all-clear line)", on: true }
   ],
+  sonarr: [
+    { id: "summary", label: "Summary", hint: "In queue, missing and health counts, with the first health warning", on: true },
+    { id: "queue", label: "Queue", hint: "Current downloads with progress, quality and client; stalled or failed ones are flagged", on: true },
+    { id: "upcoming", label: "Coming up", hint: "What is due in the next two weeks", on: true },
+    { id: "recent", label: "Recently added", hint: "The last episodes that finished and were imported", on: false },
+    { id: "library", label: "Library", hint: "Series count, how many are monitored, and quality upgrades wanted", on: false },
+    { id: "disk", label: "Disk space", hint: "Free space on the drives this app uses", on: false }
+  ],
+  radarr: [
+    { id: "summary", label: "Summary", hint: "In queue, missing and health counts, with the first health warning", on: true },
+    { id: "queue", label: "Queue", hint: "Current downloads with progress, quality and client; stalled or failed ones are flagged", on: true },
+    { id: "upcoming", label: "Coming up", hint: "What is due in the next two weeks", on: true },
+    { id: "recent", label: "Recently added", hint: "The last movies that finished and were imported", on: false },
+    { id: "library", label: "Library", hint: "Movie count, how many are monitored, and quality upgrades wanted", on: false },
+    { id: "disk", label: "Disk space", hint: "Free space on the drives this app uses", on: false }
+  ],
   sabnzbd: [
     { id: "summary", label: "Summary", hint: "Speed, queue size and time left, status and warnings, pause button", on: true },
     { id: "graph", label: "Speed graph", hint: "Download speed over the last few hours", on: true },

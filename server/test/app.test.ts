@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildApp } from "../src/index.js";
-import { KEY, mockGo2rtc, mockRadarr, mockSab, mockSonarr } from "./mocks.js";
+import { KEY, inDays, mockGo2rtc, mockRadarr, mockSab, mockSonarr } from "./mocks.js";
 
 process.env.NODE_ENV = "test";
 const H = { "x-homebase": "1" };
@@ -118,9 +118,13 @@ test("integrations: create, poll and read normalized data for Sonarr, Radarr and
   assert.equal(s.queue.count, 2); assert.equal(s.queue.items[0].title, "Severance");
   assert.equal(s.queue.items[0].subtitle, "S01E02 Half Loop"); assert.equal(s.queue.items[0].progress, 0.75);
   assert.equal(s.missing, 7); assert.equal(s.health.issues, 1); assert.equal(s.libraryCount, 3);
-  assert.equal(s.upcoming[0].subtitle, "S01E03 Soon", "upcoming episodes are sorted soonest first");
+  assert.deepEqual(s.upcoming.map((e: any) => e.subtitle), ["S01E02 Got it", "S01E03 Soon", "S01E05 Later"], "upcoming episodes are sorted soonest first");
+  assert.deepEqual([s.monitoredCount, s.cutoffUnmet, s.troubleCount], [2, 4, 1]);
+  assert.deepEqual([s.queue.items[1].trouble, s.queue.items[1].messages[0], s.queue.items[1].quality, s.queue.items[1].client, s.queue.items[0].trouble], [true, "No files found are eligible for import", "WEBDL-1080p", "SABnzbd", false]);
+  assert.deepEqual([s.recent[0].title, s.recent[0].subtitle, s.recent[0].quality], ["Severance", "S01E01 Good News", "HDTV-720p"]);
+  assert.equal(s.disks.length, 1, "the same drive listed twice is shown once"); assert.equal(s.disks[0].label, "TV");
   const r = data[radarrId].data;
-  assert.equal(r.queue.items[0].title, "Dune"); assert.equal(r.queue.items[0].subtitle, "2021"); assert.equal(r.upcoming[0].title, "Soon Movie"); assert.equal(r.libraryCount, 2);
+  assert.equal(r.queue.items[0].title, "Dune"); assert.equal(r.queue.items[0].subtitle, "2021"); assert.ok(r.upcoming.some((e: any) => e.title === "Soon Movie")); assert.equal(r.libraryCount, 2);
   const z = data[sabId].data;
   assert.equal(z.speedKBs, 10240.5); assert.equal(z.queue.items[0].progress, 0.75); assert.equal(z.queue.sizeLeftMB, 1250.25); assert.equal(z.history[0].name, "Done.Item"); assert.equal(z.paused, false);
   assert.deepEqual([z.diskFreeGB, z.diskTotalGB, z.speedLimitPct, z.warnings, z.status], [512.3, 1000, 50, 2, "Downloading"]);
@@ -154,6 +158,34 @@ test("integrations: SABnzbd per-job actions, retry, speed limit, and hostile ids
   for (const bad of [{ id: "a&mode=shutdown" }, { id: "" }, { id: "../x" }, {}]) assert.equal((await act("deletejob", bad)).statusCode, 502, JSON.stringify(bad));
   for (const bad of [{ percent: 101 }, { percent: -1 }, { percent: "50; rm" }, { percent: 1.5 }, { percent: "" }, {}]) assert.equal((await act("speedlimit", bad)).statusCode, 502, JSON.stringify(bad));
   assert.equal(sab.state.calls.length, before, "refused requests never reach SABnzbd");
+});
+
+test("calendar: merges Sonarr and Radarr, marks state, proxies posters safely, validates input", async () => {
+  const range = `start=${encodeURIComponent(inDays(-20))}&end=${encodeURIComponent(inDays(48))}`;
+  const cal = async (extra = "") => (await call("GET", `/api/calendar?ids=${sonarrId},${radarrId},${sabId}&${range}${extra}`)).json();
+  const digital = await cal("&release=digital");
+  assert.deepEqual(digital.sources.map((x: any) => x.type).sort(), ["radarr", "sonarr"], "only Sonarr and Radarr connections are used");
+  const by = (list: any[], title: string, sub?: string) => list.find((e: any) => e.title === title && (sub === undefined || e.subtitle.includes(sub)));
+  assert.equal(by(digital.entries, "Severance", "Got it").state, "downloaded");
+  assert.equal(by(digital.entries, "Severance", "Soon").state, "downloading", "an episode in the queue is downloading");
+  assert.equal(by(digital.entries, "Andor").state, "upcoming");
+  assert.equal(by(digital.entries, "Old Movie").state, "downloading", "a movie in the queue is downloading");
+  assert.deepEqual(digital.entries.filter((e: any) => e.title === "Soon Movie").map((e: any) => [e.releaseType, e.state, e.allDay]), [["Digital", "upcoming", true]]);
+  assert.equal(by(digital.entries, "Severance", "Soon").allDay, false);
+  assert.deepEqual(digital.entries.map((e: any) => e.date), [...digital.entries.map((e: any) => e.date)].sort((a, b) => Date.parse(a) - Date.parse(b)), "entries are in date order");
+  const all = await cal("&release=all");
+  assert.deepEqual(all.entries.filter((e: any) => e.title === "Soon Movie").map((e: any) => [e.releaseType, e.state]), [["Cinema", "released"], ["Digital", "upcoming"], ["Physical", "upcoming"]]);
+  const poster = by(digital.entries, "Severance", "Soon").poster as string;
+  assert.ok(poster.startsWith(`/api/media-image/${sonarrId}?p=`));
+  assert.equal(by(digital.entries, "Severance", "Got it").poster, null, "a poster path outside the cover folder is dropped");
+  assert.ok(!JSON.stringify(digital).includes(KEY) && !JSON.stringify(digital).includes(sonarr.url), "no key and no app address reach the browser");
+  const img = await call("GET", poster);
+  assert.equal(img.statusCode, 200); assert.equal(img.headers["content-type"], "image/png"); assert.equal(img.body, "PNGDATA");
+  for (const bad of ["/etc/passwd", "/MediaCover/../x", "/MediaCover/1/poster.jpg%0d%0aX:1", "http://evil/MediaCover/1/p.jpg"]) assert.equal((await call("GET", `/api/media-image/${sonarrId}?p=${encodeURIComponent(bad)}`)).statusCode, 404, bad);
+  assert.equal((await call("GET", `/api/media-image/${sabId}?p=${encodeURIComponent("/MediaCover/1/poster.jpg")}`)).statusCode, 404, "other connection types never serve images");
+  assert.equal((await call("GET", `/api/calendar?${range}`)).statusCode, 400, "no connection chosen");
+  assert.equal((await call("GET", `/api/calendar?ids=${sonarrId}&start=${encodeURIComponent(inDays(-100))}&end=${encodeURIComponent(inDays(100))}`)).statusCode, 400, "range too long");
+  assert.equal((await call("GET", `/api/calendar?ids=${sonarrId}&start=nope&end=nope`)).statusCode, 400);
 });
 
 test("integrations: keys are encrypted at rest and never returned to anyone", async () => {

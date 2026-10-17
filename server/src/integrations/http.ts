@@ -77,3 +77,25 @@ function insecureGet(url: URL, headers: Record<string, string>, timeoutMs: numbe
     req.end(payload);
   });
 }
+
+/** Fetch an image (or any small file) with the app's key. Used for posters, so the browser never needs the key or the app's address. */
+export async function getBytes(ctx: Ctx, path: string, headers: Record<string, string>, maxBytes = 3_000_000, timeoutMs = 8000): Promise<{ status: number; type: string; body: Buffer }> {
+  const url = new URL(ctx.url + path);
+  if (ctx.insecureTls && url.protocol === "https:") {
+    return new Promise((resolve, reject) => {
+      const req = httpsRequest(url, { method: "GET", headers, rejectUnauthorized: false, timeout: timeoutMs }, res => {
+        const chunks: Buffer[] = []; let size = 0;
+        res.on("data", (c: Buffer) => { size += c.length; if (size > maxBytes) req.destroy(new Error("file too large")); else chunks.push(c); });
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, type: String(res.headers["content-type"] ?? ""), body: Buffer.concat(chunks) }));
+        res.on("error", reject);
+      });
+      req.on("timeout", () => req.destroy(new Error("timed out")));
+      req.on("error", reject);
+      req.end();
+    });
+  }
+  const r = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+  const body = Buffer.from(await r.arrayBuffer());
+  if (body.length > maxBytes) throw new IntegrationError("file too large");
+  return { status: r.status, type: r.headers.get("content-type") ?? "", body };
+}

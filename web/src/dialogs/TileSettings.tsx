@@ -31,6 +31,30 @@ export function TileSettings({ tile, integrations, onChange, onPickIcon, onOpenC
             ) : <div className="row"><span className="sub">No {def.label} connection yet.</span><button className="btn sm" onClick={onOpenConnections}>Add one</button></div>}
           </Field>
         )}
+        {tile.type === "mediacalendar" && (() => {
+          const arrs = integrations.filter(i => i.type === "sonarr" || i.type === "radarr");
+          const chosen = (tile.config.integrationIds ?? []) as string[];
+          const toggle = (id: string, on: boolean) => onChange({ integrationIds: on ? [...chosen, id] : chosen.filter(x => x !== id) });
+          return (
+            <>
+              <div className="field"><span>Connections</span>
+                {arrs.length ? (
+                  <div className="list sec-pick">{arrs.map(a => (
+                    <div key={a.id} className="li"><label className="chk"><input type="checkbox" checked={chosen.includes(a.id)} onChange={e => toggle(a.id, e.target.checked)} /> {a.name}</label><span className="sub">{a.type === "sonarr" ? "TV" : "Movies"}</span></div>
+                  ))}</div>
+                ) : <div className="row"><span className="sub">No Sonarr or Radarr connection yet.</span><button className="btn sm" onClick={onOpenConnections}>Add one</button></div>}
+                <small>Tick as many as you have; they are merged into one calendar.</small></div>
+              <Field label="Movie dates" hint="Which Radarr release dates to place on the calendar.">
+                <select value={String(tile.config.release ?? "digital")} onChange={e => onChange({ release: e.target.value })}>
+                  <option value="digital">Digital release</option><option value="cinema">In cinemas</option><option value="physical">Physical release</option><option value="all">All of them</option>
+                </select>
+              </Field>
+              <Field label="Week starts on">
+                <select value={String(tile.config.weekStart ?? "sun")} onChange={e => onChange({ weekStart: e.target.value })}><option value="sun">Sunday</option><option value="mon">Monday</option></select>
+              </Field>
+            </>
+          );
+        })()}
         {SECTION_DEFS[tile.type] && (() => {
           const sections = resolveSections(tile.type, tile.config.sections);
           const save = (next: typeof sections) => onChange({ sections: next });

@@ -57,3 +57,7 @@ Built from the Homarr/app API behaviour and tested against mocks only. UniFi's r
 ## Roadmap
 
 Plex, Jellyfin, Seerr; UniFi UNAS drive details (needs the Test output from real hardware); Unraid container start/stop; PDU outlet switching; feeding UniFi Protect cameras into the camera wall.
+
+## Media calendar
+
+Add the "Media calendar" tile, tick your Sonarr and Radarr connections, and choose which Radarr release date to show (digital, cinema, physical or all). Filled dots mean downloaded; click a day for details. Posters are fetched through Homebase, so your app addresses and keys never reach the browser.

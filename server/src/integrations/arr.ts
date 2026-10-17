@@ -28,18 +28,22 @@ function makeArr(kind: Kind): IntegrationType {
   }
 
   async function poll(ctx: Ctx): Promise<PollResult> {
-    const start = new Date(), end = new Date(Date.now() + 7 * 86400_000);
-    const queueQuery = { page: 1, pageSize: 20, ...(kind === "sonarr" ? { includeSeries: true, includeEpisode: true } : { includeMovie: true }) };
+    const start = new Date(), end = new Date(Date.now() + 14 * 86400_000);
+    const queueQuery = { page: 1, pageSize: 30, ...(kind === "sonarr" ? { includeSeries: true, includeEpisode: true } : { includeMovie: true }) };
+    const historyQuery = { page: 1, pageSize: 10, sortKey: "date", sortDirection: "descending", eventType: 3, ...(kind === "sonarr" ? { includeSeries: true, includeEpisode: true } : { includeMovie: true }) };
     const calendarQuery = { start: iso(start), end: iso(end), unmonitored: false, ...(kind === "sonarr" ? { includeSeries: true } : {}) };
 
     // The status call must work. Every other call is optional so one slow endpoint doesn't blank the tile.
     const status = await get(ctx, "/api/v3/system/status");
-    const [queue, missing, health, calendar, library] = await Promise.allSettled([
+    const [queue, missing, health, calendar, library, history, disks, cutoff] = await Promise.allSettled([
       get(ctx, "/api/v3/queue", queueQuery),
       get(ctx, "/api/v3/wanted/missing", { page: 1, pageSize: 1, monitored: true }),
       get(ctx, "/api/v3/health"),
       get(ctx, "/api/v3/calendar", calendarQuery),
-      get(ctx, kind === "sonarr" ? "/api/v3/series" : "/api/v3/movie")
+      get(ctx, kind === "sonarr" ? "/api/v3/series" : "/api/v3/movie"),
+      get(ctx, "/api/v3/history", historyQuery),
+      get(ctx, "/api/v3/diskspace"),
+      get(ctx, "/api/v3/wanted/cutoff", { page: 1, pageSize: 1, monitored: true })
     ]);
     const ok = <T,>(r: PromiseSettledResult<T>): T | null => (r.status === "fulfilled" ? r.value : null);
 
@@ -49,7 +53,13 @@ function makeArr(kind: Kind): IntegrationType {
       const subtitle = kind === "sonarr" && r.episode
         ? `S${String(r.episode.seasonNumber).padStart(2, "0")}E${String(r.episode.episodeNumber).padStart(2, "0")} ${r.episode.title ?? ""}`.trim()
         : kind === "radarr" && r.movie?.year ? String(r.movie.year) : "";
-      return { id: r.id, title: String(title ?? "Unknown"), subtitle, progress: progress(r.size, r.sizeleft), timeleft: r.timeleft ?? null, status: String(r.trackedDownloadState ?? r.status ?? "") };
+      const trouble = ["warning", "error"].includes(String(r.trackedDownloadStatus ?? "").toLowerCase()) || /fail/i.test(String(r.status ?? ""));
+      const messages = ((r.statusMessages ?? []) as any[]).flatMap(m => (m?.messages ?? []) as string[]).concat(r.errorMessage ? [String(r.errorMessage)] : []).slice(0, 3);
+      return {
+        id: r.id, title: String(title ?? "Unknown"), subtitle, progress: progress(r.size, r.sizeleft), timeleft: r.timeleft ?? null, status: String(r.trackedDownloadState ?? r.status ?? ""),
+        quality: r.quality?.quality?.name ? String(r.quality.quality.name) : null, client: r.downloadClient ? String(r.downloadClient) : null, sizeMB: Number(r.size) > 0 ? Number(r.size) / 1048576 : null,
+        trouble, messages: messages.map(m => String(m).slice(0, 200))
+      };
     });
 
     const healthList = (ok(health) ?? []) as any[];
@@ -65,7 +75,16 @@ function makeArr(kind: Kind): IntegrationType {
       }
       const date = e.digitalRelease ?? e.physicalRelease ?? e.inCinemas ?? null;
       return { title: String(e.title ?? "Unknown"), subtitle: e.year ? String(e.year) : "", date, hasFile: Boolean(e.hasFile) };
-    }).filter(e => e.date).sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(0, 10);
+    }).filter(e => e.date).sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(0, 25);
+
+    const recent = ((ok(history)?.records ?? []) as any[]).map(r => ({
+      title: String((kind === "sonarr" ? r.series?.title : r.movie?.title) ?? r.sourceTitle ?? "Unknown"),
+      subtitle: kind === "sonarr" && r.episode ? `S${String(r.episode.seasonNumber).padStart(2, "0")}E${String(r.episode.episodeNumber).padStart(2, "0")} ${r.episode.title ?? ""}`.trim() : kind === "radarr" && r.movie?.year ? String(r.movie.year) : "",
+      date: r.date ?? null, quality: r.quality?.quality?.name ? String(r.quality.quality.name) : null
+    })).slice(0, 10);
+    const seen = new Set<string>();
+    const diskList = ((ok(disks) ?? []) as any[]).filter(d => Number(d?.totalSpace) > 0).filter(d => { const k = `${d.totalSpace}:${d.freeSpace}`; if (seen.has(k)) return false; seen.add(k); return true; })
+      .map(d => ({ label: String(d.label || d.path || "Disk"), freeB: Number(d.freeSpace), totalB: Number(d.totalSpace) })).slice(0, 4);
 
     const libraryDoc = ok(library);
     const data = {
@@ -75,10 +94,15 @@ function makeArr(kind: Kind): IntegrationType {
       missing: missing.status === "fulfilled" ? Number(missing.value?.totalRecords ?? 0) : null,
       health: { issues: issues.length, messages: issues.slice(0, 5).map(h => String(h.message ?? h.source ?? "")) },
       upcoming,
-      libraryCount: Array.isArray(libraryDoc) ? libraryDoc.length : null
+      libraryCount: Array.isArray(libraryDoc) ? libraryDoc.length : null,
+      monitoredCount: Array.isArray(libraryDoc) ? libraryDoc.filter((x: any) => x?.monitored !== false).length : null,
+      cutoffUnmet: cutoff.status === "fulfilled" ? Number(cutoff.value?.totalRecords ?? 0) : null,
+      troubleCount: queueItems.filter(i => i.trouble).length,
+      recent, disks: diskList
     };
     const metrics: Record<string, number> = { queue_count: data.queue.count, health_issues: data.health.issues };
     if (data.missing !== null) metrics.missing = data.missing;
+    metrics.queue_trouble = data.troubleCount;
     return { data, metrics };
   }
 

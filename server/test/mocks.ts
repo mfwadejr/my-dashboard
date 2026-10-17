@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 
 export interface Mock { server: Server; url: string; hits: string[]; close(): Promise<void> }
 
-export async function start(handler: (req: IncomingMessage, url: URL, hits: string[], body: any) => { status?: number; body?: unknown; text?: string; headers?: Record<string, string | string[]> }, tls?: { key: string; cert: string }): Promise<Mock> {
+export async function start(handler: (req: IncomingMessage, url: URL, hits: string[], body: any) => { status?: number; body?: unknown; text?: string; binary?: Buffer; type?: string; headers?: Record<string, string | string[]> }, tls?: { key: string; cert: string }): Promise<Mock> {
   const hits: string[] = [];
   const listener = (req: IncomingMessage, res: import("node:http").ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://mock");
@@ -15,8 +15,8 @@ export async function start(handler: (req: IncomingMessage, url: URL, hits: stri
       let parsed: any = null;
       try { parsed = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : null; } catch { /* not JSON */ }
       const out = handler(req, url, hits, parsed);
-      res.writeHead(out.status ?? 200, { "Content-Type": out.text !== undefined ? "text/html" : "application/json", ...(out.headers ?? {}) });
-      res.end(out.text !== undefined ? out.text : JSON.stringify(out.body ?? {}));
+      res.writeHead(out.status ?? 200, { "Content-Type": out.binary ? out.type ?? "application/octet-stream" : out.text !== undefined ? "text/html" : "application/json", ...(out.headers ?? {}) });
+      res.end(out.binary ?? (out.text !== undefined ? out.text : JSON.stringify(out.body ?? {})));
     });
   };
   const server = (tls ? createSecureServer(tls, listener) : createServer(listener)) as Server;
@@ -26,6 +26,8 @@ export async function start(handler: (req: IncomingMessage, url: URL, hits: stri
 }
 
 export const KEY = "test-key-123";
+/** A date relative to now, so tests do not depend on the day they run. */
+export const inDays = (n: number) => new Date(Date.now() + n * 86400_000).toISOString();
 
 export function mockSonarr(): Promise<Mock> {
   return start((req, url) => {
@@ -33,16 +35,21 @@ export function mockSonarr(): Promise<Mock> {
     switch (url.pathname) {
       case "/api/v3/system/status": return { body: { appName: "Sonarr", version: "4.0.9.2244" } };
       case "/api/v3/queue": return { body: { totalRecords: 2, records: [
-        { id: 1, title: "Show.S01E02.1080p", status: "downloading", trackedDownloadState: "downloading", size: 1000, sizeleft: 250, timeleft: "00:10:00", series: { title: "Severance" }, episode: { seasonNumber: 1, episodeNumber: 2, title: "Half Loop" } },
-        { id: 2, title: "Other.S02E01", status: "queued", size: 500, sizeleft: 500, series: { title: "Andor" }, episode: { seasonNumber: 2, episodeNumber: 1, title: "Pilot" } }
+        { id: 1, episodeId: 12, title: "Show.S01E02.1080p", status: "downloading", trackedDownloadState: "downloading", size: 1000, sizeleft: 250, timeleft: "00:10:00", series: { title: "Severance" }, episode: { seasonNumber: 1, episodeNumber: 2, title: "Half Loop" } },
+        { id: 2, title: "Other.S02E01", status: "warning", trackedDownloadStatus: "warning", statusMessages: [{ title: "x", messages: ["No files found are eligible for import"] }], quality: { quality: { name: "WEBDL-1080p" } }, downloadClient: "SABnzbd", size: 524288000, sizeleft: 524288000, series: { title: "Andor" }, episode: { seasonNumber: 2, episodeNumber: 1, title: "Pilot" } }
       ] } };
       case "/api/v3/wanted/missing": return { body: { totalRecords: 7, records: [] } };
       case "/api/v3/health": return { body: [{ source: "IndexerStatusCheck", type: "warning", message: "Indexers unavailable due to failures" }, { source: "x", type: "ok", message: "fine" }] };
       case "/api/v3/calendar": return { body: [
-        { title: "Later", seasonNumber: 1, episodeNumber: 5, airDateUtc: "2026-10-20T01:00:00Z", hasFile: false, series: { title: "Andor" } },
-        { title: "Soon", seasonNumber: 1, episodeNumber: 3, airDateUtc: "2026-10-16T01:00:00Z", hasFile: false, series: { title: "Severance" } }
+        { id: 11, title: "Later", seasonNumber: 1, episodeNumber: 5, airDateUtc: inDays(4), hasFile: false, series: { title: "Andor", images: [{ coverType: "poster", url: "/MediaCover/2/poster.jpg?lastWrite=1" }] } },
+        { id: 12, title: "Soon", seasonNumber: 1, episodeNumber: 3, airDateUtc: inDays(1), hasFile: false, overview: "An episode.", series: { title: "Severance", images: [{ coverType: "poster", url: "/MediaCover/1/poster.jpg?lastWrite=1" }, { coverType: "banner", url: "/MediaCover/1/banner.jpg" }] } },
+        { id: 13, title: "Got it", seasonNumber: 1, episodeNumber: 2, airDateUtc: inDays(-2), hasFile: true, series: { title: "Severance", images: [{ coverType: "poster", url: "/etc/passwd" }] } }
       ] };
-      case "/api/v3/series": return { body: [{ id: 1 }, { id: 2 }, { id: 3 }] };
+      case "/MediaCover/1/poster.jpg": return { binary: Buffer.from("PNGDATA"), type: "image/png" };
+      case "/api/v3/series": return { body: [{ id: 1 }, { id: 2 }, { id: 3, monitored: false }] };
+      case "/api/v3/history": return { body: { records: [{ date: "2026-10-14T20:00:00Z", quality: { quality: { name: "HDTV-720p" } }, series: { title: "Severance" }, episode: { seasonNumber: 1, episodeNumber: 1, title: "Good News" } }] } };
+      case "/api/v3/diskspace": return { body: [{ path: "/tv", label: "TV", freeSpace: 500e9, totalSpace: 2e12 }, { path: "/tv2", label: "TV copy", freeSpace: 500e9, totalSpace: 2e12 }] };
+      case "/api/v3/wanted/cutoff": return { body: { totalRecords: 4, records: [] } };
       default: return { status: 404 };
     }
   });
@@ -53,10 +60,10 @@ export function mockRadarr(): Promise<Mock> {
     if (req.headers["x-api-key"] !== KEY) return { status: 401 };
     switch (url.pathname) {
       case "/api/v3/system/status": return { body: { appName: "Radarr", version: "5.14.0" } };
-      case "/api/v3/queue": return { body: { totalRecords: 1, records: [{ id: 9, title: "Movie.2025.2160p", size: 8000, sizeleft: 2000, timeleft: "00:30:00", trackedDownloadState: "importPending", movie: { title: "Dune", year: 2021 } }] } };
+      case "/api/v3/queue": return { body: { totalRecords: 1, records: [{ id: 9, movieId: 6, title: "Movie.2025.2160p", size: 8000, sizeleft: 2000, timeleft: "00:30:00", trackedDownloadState: "importPending", movie: { title: "Dune", year: 2021 } }] } };
       case "/api/v3/wanted/missing": return { body: { totalRecords: 3, records: [] } };
       case "/api/v3/health": return { body: [] };
-      case "/api/v3/calendar": return { body: [{ title: "Soon Movie", year: 2026, digitalRelease: "2026-10-18T00:00:00Z", hasFile: false }] };
+      case "/api/v3/calendar": return { body: [{ id: 5, title: "Soon Movie", year: 2026, inCinemas: inDays(-16), digitalRelease: inDays(2), physicalRelease: inDays(40), hasFile: false, images: [{ coverType: "poster", url: "/MediaCover/5/poster.jpg" }] }, { id: 6, title: "Old Movie", year: 2020, digitalRelease: inDays(-6), hasFile: false }] };
       case "/api/v3/movie": return { body: [{ id: 1 }, { id: 2 }] };
       default: return { status: 404 };
     }

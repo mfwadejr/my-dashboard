@@ -5,6 +5,7 @@ import type { Hub } from "../hub.js";
 import { readSeries, type Poller } from "../poller.js";
 import type { Store } from "../store.js";
 import type { LiveSampler } from "../live.js";
+import { RELEASES, buildCalendar, fetchPoster, type Release } from "../calendar.js";
 import { IntegrationError, normalizeUrl } from "../integrations/http.js";
 import { INTEGRATION_TYPES, publicTypeInfo } from "../integrations/registry.js";
 
@@ -115,6 +116,27 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
     const since = Number((request.query as any)?.since ?? 0) || 0;
     const out = live.read(id, since);
     return out ?? reply.code(404).send({ error: "This connection has no live data" });
+  });
+
+  // One calendar across any number of Sonarr and Radarr connections. Viewers can read it, like the rest of the tile data.
+  app.get("/api/calendar", async (request, reply) => {
+    const q = request.query as Record<string, string | undefined>;
+    const ids = String(q.ids ?? "").split(",").map(x => x.trim()).filter(Boolean).slice(0, 6);
+    const start = new Date(String(q.start ?? "")), end = new Date(String(q.end ?? ""));
+    if (!ids.length) return reply.code(400).send({ error: "Choose at least one connection" });
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start || end.getTime() - start.getTime() > 70 * 86400_000) return reply.code(400).send({ error: "Choose a date range of up to 70 days" });
+    const release = (RELEASES.has(String(q.release)) ? q.release : "digital") as Release;
+    return buildCalendar(store, ids, start, end, release);
+  });
+
+  app.get("/api/media-image/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const path = String((request.query as any)?.p ?? "");
+    try {
+      const img = await fetchPoster(store, id, path);
+      if (!img) return reply.code(404).send({ error: "No such image" });
+      return reply.header("Content-Type", img.type).header("Cache-Control", "private, max-age=86400").send(img.body);
+    } catch { return reply.code(502).send({ error: "Could not load the image" }); }
   });
 
   app.get("/api/events", async request => {

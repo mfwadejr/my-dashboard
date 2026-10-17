@@ -10,6 +10,8 @@ Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 - Verify against real hardware: Protect, Prowlarr, Site Gateway, Unraid, ZimaOS.
 
 ## Done
+- Sonarr/Radarr: pick-and-order sections (summary, queue, upcoming, recently grabbed, library, disk), stuck-download warnings with reasons, quality and client per item.
+- Media calendar tile: one month grid across any number of Sonarr and Radarr connections, posters, downloaded state, Radarr cinema/digital/physical dates, day detail and list view.
 
 - SABnzbd tile: section picker (summary, speed graph, queue, download disk, speed limit, history); status and warnings pills; pause/resume/remove per job; retry failed history; speed limit control; today/week totals.
 - UniFi UNAS connection and tile (storage used/free gauge) built; unverified on real hardware.

@@ -2,6 +2,7 @@ import { Arr } from "./Arr";
 import { Camera } from "./Camera";
 import { Clock } from "./Clock";
 import { Launcher } from "./Launcher";
+import { MediaCalendar } from "./MediaCalendar";
 import { Notes } from "./Notes";
 import { Pdu } from "./Pdu";
 import { Prowlarr } from "./Prowlarr";
@@ -17,6 +18,7 @@ export const WIDGETS: WidgetDef[] = [
   { type: "launcher", label: "App launcher", description: "Links with icons and status dots", size: [4, 2], component: Launcher },
   { type: "sonarr", label: "Sonarr", description: "TV queue, missing and upcoming", size: [3, 3], needs: "sonarr", component: Arr },
   { type: "radarr", label: "Radarr", description: "Movie queue, missing and upcoming", size: [3, 3], needs: "radarr", component: Arr },
+  { type: "mediacalendar", label: "Media calendar", description: "Sonarr and Radarr in one month view", size: [4, 5], component: MediaCalendar },
   { type: "sabnzbd", label: "SABnzbd", description: "Downloads, speed and pause", size: [3, 3], needs: "sabnzbd", component: Sab },
   { type: "prowlarr", label: "Prowlarr", description: "Indexer health, blocked indexers, grabs", size: [3, 3], needs: "prowlarr", component: Prowlarr },
   { type: "sitegateway", label: "Site Gateway", description: "Gateway, sites, proxies, certificates, alerts", size: [3, 3], needs: "sitegateway", component: SiteGateway },
