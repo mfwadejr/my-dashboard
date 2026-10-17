@@ -3,6 +3,7 @@
 Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 
 ## Open
+- Unraid network graph like ZimaOS: waiting on what this Unraid version exposes. Press Test on the Unraid connection and note the "Network-related fields" line.
 
 - ZimaOS Storage: ZimaOS's own widget shows health, used and total for the storage pool; Homebase lists drives only.
 - UniFi UNAS: connection signs in with a local account (as Homepage does) and tries likely /proxy/drive addresses; confirm against a real UNAS with the connection Test result and adjust.

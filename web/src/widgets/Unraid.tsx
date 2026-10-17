@@ -18,8 +18,8 @@ function Containers({ d, tall, authed, act, busy }: { d: any; tall: boolean; aut
   if (rows.length === 0) return <Empty>No containers</Empty>;
   return (
     <div className="list">{rows.map((c: any) => (
-      <div key={c.id} className="li col">
-        <div className="row sp"><span className="trunc">{c.name}</span>
+      <div key={c.id} className="li" title={[c.status, c.image].filter(Boolean).join(" · ") || undefined}>
+        <span className="trunc">{c.name}</span>
         <span className="row" style={{ gap: 4, flex: "none" }}>
           {c.update && <Pill tone="warn">update</Pill>}
           <Pill tone={c.running ? "ok" : "mute"}>{c.running ? "running" : c.state || "stopped"}</Pill>
@@ -29,8 +29,7 @@ function Containers({ d, tall, authed, act, busy }: { d: any; tall: boolean; aut
               <Confirm label="■" name={`Stop ${c.name}`} sure="Stop?" disabled={busy} onGo={() => void act("containerstop", { id: c.id })} />
             </>
           ) : <button type="button" className="btn sm" disabled={busy} aria-label={`Start ${c.name}`} onClick={() => void act("containerstart", { id: c.id })}>▶</button>)}
-        </span></div>
-        <span className="sub trunc">{[c.status ?? c.state, c.image].filter(Boolean).join(" · ")}</span>
+        </span>
       </div>
     ))}{d.docker.list.length > rows.length && <div className="sub">and {d.docker.list.length - rows.length} more</div>}</div>
   );

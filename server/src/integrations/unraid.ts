@@ -106,13 +106,23 @@ function shape(sections: Partial<Record<Section, any>>) {
   return data;
 }
 
+/** Lists field names that look network-related, so we can see what this Unraid version offers for live throughput. Never fails the test. */
+async function networkHints(ctx: Ctx): Promise<string> {
+  try {
+    const d = await gql(ctx, '{ __schema { queryType { fields { name } } } m: __type(name: "Metrics") { fields { name } } i: __type(name: "Info") { fields { name } } }');
+    const pick = (f: any) => ((f?.fields ?? []) as any[]).map(x => String(x.name)).filter(n => /net|nic|iface|interface|rx|tx|bytes|traffic/i.test(n));
+    const parts = [["query", pick({ fields: d.__schema?.queryType?.fields })], ["metrics", pick(d.m)], ["info", pick(d.i)]].filter(([, v]) => (v as string[]).length).map(([k, v]) => `${k}: ${(v as string[]).slice(0, 10).join(", ")}`);
+    return parts.length ? `\nNetwork-related fields: ${parts.join(" · ")}` : "\nNetwork-related fields: none found";
+  } catch { return "\nNetwork-related fields: could not inspect (schema introspection is off)"; }
+}
+
 async function test(ctx: Ctx): Promise<TestResult> {
   const { data, failed } = await readSections(ctx);
   const ok = SECTIONS.filter(s => data[s]);
   if (ok.length === 0) throw new IntegrationError(Object.values(failed)[0] ?? "Could not read anything from Unraid");
   const host = data.info?.info?.os?.hostname;
   const missing = SECTIONS.filter(s => !data[s]);
-  return { ok: true, message: `Connected to Unraid${host ? " " + host : ""}\nReadable: ${ok.join(", ")}${missing.length ? `\nNot available with this key or version: ${missing.join(", ")}` : ""}` };
+  return { ok: true, message: `Connected to Unraid${host ? " " + host : ""}\nReadable: ${ok.join(", ")}${missing.length ? `\nNot available with this key or version: ${missing.join(", ")}` : ""}${await networkHints(ctx)}` };
 }
 
 async function poll(ctx: Ctx): Promise<PollResult> {
