@@ -62,7 +62,7 @@ test("Site Gateway: bearer token, attention items, single request per poll", asy
   const d = (await data(id)).data;
   assert.equal(gateway.hits.length - before, 1, "bursts would trip Site Gateway's 10/min bearer limit");
   assert.equal(d.proxies.errors, 1); assert.equal(d.services.https, false); assert.equal(d.criticalCount, 1);
-  assert.equal(d.certificates.within30Days, 1); assert.equal(d.liveRequests, 42);
+  assert.equal(d.certificates.within30Days, 1); assert.equal(d.liveRequests, 42); assert.equal(d.attention[0].kind, "https");
   assert.ok(!JSON.stringify(d).includes(TOKEN));
 });
 

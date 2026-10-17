@@ -16,7 +16,7 @@ async function test(ctx: Ctx): Promise<TestResult> {
 async function poll(ctx: Ctx): Promise<PollResult> {
   const d = await get(ctx, "/api/dashboard");
   if (!d?.gateway) throw new IntegrationError("Unexpected answer from Site Gateway");
-  const attention = ((d.attention ?? []) as any[]).map(a => ({ name: String(a.name ?? ""), message: String(a.message ?? ""), severity: a.severity === "critical" ? "critical" : "warning" }));
+  const attention = ((d.attention ?? []) as any[]).map(a => ({ kind: a.kind ? String(a.kind).slice(0, 30) : null, name: String(a.name ?? ""), message: String(a.message ?? ""), severity: a.severity === "critical" ? "critical" : "warning" }));
   const certs = d.certificates ?? {};
   const data = {
     version: d.system?.appVersion ?? null,
@@ -31,7 +31,7 @@ async function poll(ctx: Ctx): Promise<PollResult> {
     streams: { total: num(d.streamingPorts?.total), listening: num(d.streamingPorts?.listening) },
     liveRequests: num(d.throughput?.liveRequests),
     publicIp: d.system?.publicIp ? String(d.system.publicIp) : null,
-    attention: attention.slice(0, 6), attentionCount: attention.length,
+    attention: attention.slice(0, 20), attentionCount: attention.length,
     criticalCount: attention.filter(a => a.severity === "critical").length
   };
   return { data, metrics: { attention: data.attentionCount, critical: data.criticalCount, live_requests: data.liveRequests, upstreams_unhealthy: data.upstreams.unhealthy, proxy_errors: data.proxies.errors } };

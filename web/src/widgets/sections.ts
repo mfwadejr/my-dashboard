@@ -47,6 +47,15 @@ export const SECTION_DEFS: Record<string, SectionDef[]> = {
     { id: "recent", label: "Recent searches", hint: "Latest searches and grabs with the indexer and whether they worked", on: false },
     { id: "test", label: "Test button", hint: "Run Prowlarr's test of all indexers (when signed in)", on: false }
   ],
+  sitegateway: [
+    { id: "status", label: "Service status", hint: "Gateway, HTTP, HTTPS and storage health", on: true },
+    { id: "counts", label: "Sites, proxies and certificates", hint: "Running out of total, with problems highlighted", on: true },
+    { id: "attention", label: "Needs attention", hint: "Every item Site Gateway flags, critical first", on: true },
+    { id: "traffic", label: "Traffic", hint: "Requests per minute with a graph over the last few hours", on: true },
+    { id: "upstreams", label: "Upstreams and streams", hint: "Healthy upstreams and listening stream ports", on: false },
+    { id: "certs", label: "Certificate expiry", hint: "Certificates expiring within 7 and 30 days", on: false },
+    { id: "system", label: "Version and public address", hint: "Site Gateway version and the public IP it sees", on: true }
+  ],
   zimaos: [
     { id: "summary", label: "CPU, RAM and temperature", hint: "Headline numbers with a memory bar", on: true },
     { id: "network", label: "Network", hint: "Upload and download speed of the main network port, with a short history graph", on: false },
