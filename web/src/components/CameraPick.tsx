@@ -1,8 +1,9 @@
 import type { CameraInfo } from "../types";
-import { Modal } from "../dialogs/Modal";
+import { Field, Modal } from "../dialogs/Modal";
+import { REFRESH_CHOICES, refreshOf } from "../widgets/Camera";
 
-export function CameraPick({ cameras, current, onPick, onAdd, onEdit, onClose }: {
-  cameras: CameraInfo[]; current?: string; onPick: (id: string) => void; onAdd: () => void; onEdit: (id: string) => void; onClose: () => void;
+export function CameraPick({ cameras, current, config, onConfig, onPick, onAdd, onEdit, onClose }: {
+  cameras: CameraInfo[]; current?: string; config: Record<string, unknown>; onConfig: (patch: Record<string, unknown>) => void; onPick: (id: string) => void; onAdd: () => void; onEdit: (id: string) => void; onClose: () => void;
 }) {
   return (
     <Modal title="Choose a camera" eyebrow="Camera tile" onClose={onClose}>
@@ -14,6 +15,14 @@ export function CameraPick({ cameras, current, onPick, onAdd, onEdit, onClose }:
             <span className="row"><button className="btn sm" onClick={() => onEdit(c.id)}>Edit</button><button className="btn sm pri" onClick={() => onPick(c.id)}>Use</button></span>
           </div>
         ))}
+      </div>
+      <div className="form" style={{ marginTop: 12 }}>
+        <Field label="Show as" hint="Snapshots are a picture refreshed every few seconds. They use far less bandwidth than live video.">
+          <select value={String(config.mode ?? "live")} onChange={e => onConfig({ mode: e.target.value })}><option value="live">Live video</option><option value="snapshot">Snapshot, refreshed</option></select>
+        </Field>
+        {config.mode === "snapshot" && (
+          <Field label="Refresh every"><select value={String(refreshOf(config.refresh))} onChange={e => onConfig({ refresh: Number(e.target.value) })}>{REFRESH_CHOICES.map(n => <option key={n} value={n}>{n} seconds</option>)}</select></Field>
+        )}
       </div>
       <div className="acts"><span /><button className="btn pri" onClick={onAdd}>＋ Add a camera</button></div>
     </Modal>

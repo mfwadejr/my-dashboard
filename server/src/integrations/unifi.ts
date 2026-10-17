@@ -162,6 +162,25 @@ async function protectPoll(ctx: Ctx): Promise<PollResult> {
   return { data, metrics: { cameras_total: data.cameras.total, cameras_offline: data.cameras.disconnected } };
 }
 
+/** Cameras on a Protect console, for importing into the camera wall. */
+export async function protectCameras(ctx: Ctx): Promise<Array<{ id: string; name: string; state: string }>> {
+  const doc = await hinted("UniFi Protect", () => get(ctx, `${PROT}/cameras`));
+  return items(doc).filter(c => typeof c?.id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(c.id)).map(c => ({ id: String(c.id), name: String(c.name ?? "Camera").slice(0, 60), state: String(c.state ?? "UNKNOWN") }));
+}
+
+/** The RTSPS address(es) Protect hands out for a camera. Asks for existing ones first, and creates them only if there are none. */
+export async function protectStreams(ctx: Ctx, cameraId: string): Promise<{ main: string; sub: string }> {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(cameraId)) throw new IntegrationError("That is not a valid camera id");
+  const path = `${PROT}/cameras/${cameraId}/rtsps-stream`;
+  const urls = (doc: any) => ({ high: String(doc?.high ?? ""), medium: String(doc?.medium ?? ""), low: String(doc?.low ?? "") });
+  let u = urls(await get(ctx, path).catch(() => null));
+  if (!u.high && !u.medium && !u.low) u = urls(await getJson(ctx, path, { headers: { "X-API-KEY": ctx.apiKey }, body: { qualities: ["high", "low"] } }));
+  const main = u.high || u.medium || u.low;
+  if (!main) throw new IntegrationError("UniFi Protect did not return a stream address for this camera");
+  const sub = [u.low, u.medium].find(x => x && x !== main) ?? "";
+  return { main, sub };
+}
+
 // ---------------------------------------------------------------- PDU (a Network device)
 
 const PDU_MODEL = /pdu/i;

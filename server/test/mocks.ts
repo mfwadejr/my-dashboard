@@ -107,7 +107,12 @@ export function mockGo2rtc(): Promise<Mock & { streams: Map<string, string> }> {
     if (url.pathname === "/stream.html") return { text: "<html>player</html>" };
     if (url.pathname === "/video-stream.js") return { text: "// player script" };
     if (url.pathname === "/api/config") return { text: "SECRET CONFIG" };
-    if (url.pathname === "/api/frame.jpeg") return { text: "jpegbytes" };
+    if (url.pathname === "/api/frame.jpeg") {
+      const src = streams.get(url.searchParams.get("src") ?? "") ?? "";
+      if (src.includes("badcam")) return { status: 500, text: `streams: dial tcp 10.9.9.9:554: i/o timeout (${src})` };
+      if (src.includes("authfail")) return { status: 500, text: "streams: wrong user/pass 401 Unauthorized" };
+      return { binary: Buffer.from([0xff, 0xd8, 0xff, 0xd9]), type: "image/jpeg" };
+    }
     return { status: 404 };
   }).then(m => Object.assign(m, { streams }));
 }

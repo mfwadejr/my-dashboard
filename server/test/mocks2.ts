@@ -76,6 +76,10 @@ export function mockUnifi(tls?: { key: string; cert: string }): Promise<Mock> {
       outlet_table: [{ index: 1, name: "Switch", relay_state: true, outlet_caps: 3, outlet_current: 0.5, outlet_power: 60, outlet_voltage: 120 }, { index: 2, name: "NAS", relay_state: false, outlet_caps: 3, outlet_power: 0 }, { index: 3, name: "USB", relay_state: true, outlet_caps: 1 }] }] } };
     if (p === "/proxy/protect/integration/v1/meta/info") return { body: { applicationVersion: "6.1.78" } };
     if (p === "/proxy/protect/integration/v1/cameras") return { body: [{ id: "c1", name: "Front", state: "CONNECTED" }, { id: "c2", name: "Back", state: "DISCONNECTED" }, { id: "c3", name: "Drive", state: "CONNECTED" }] };
+    if (p === "/proxy/protect/integration/v1/cameras/c1/rtsps-stream") return req.method === "POST"
+      ? { body: { high: "rtsps://192.168.1.1:7441/tokHigh1?enableSrtp", low: "rtsps://192.168.1.1:7441/tokLow1?enableSrtp" } } : { body: {} };
+    if (p === "/proxy/protect/integration/v1/cameras/c3/rtsps-stream") return req.method === "POST" ? { status: 500, body: {} } : { body: { high: "rtsps://192.168.1.1:7441/tok3?enableSrtp" } };
+    if (p === "/proxy/protect/integration/v1/cameras/c2/rtsps-stream") return { body: {} };
     if (p === "/proxy/protect/integration/v1/sensors") return { body: [{ id: "s1" }] };
     if (p === "/proxy/protect/integration/v1/nvrs") return { body: { id: "n1", name: "UNVR" } };
     return { status: 404 };

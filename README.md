@@ -31,7 +31,7 @@ UniFi consoles use a self-signed certificate: tick **Allow a self-signed certifi
 
 ## Cameras
 
-Add a camera tile, then **Add a camera** with its RTSP address (main stream, optional lighter sub-stream for the grid). Homebase registers the streams with go2rtc, which converts them for the browser. Passwords are stored encrypted and are never sent to viewers. Click a camera tile to open it full size.
+Add a camera tile, then **Add a camera** with its RTSP address (main stream, optional lighter sub-stream for the grid). Homebase registers the streams with go2rtc, which converts them for the browser. Passwords are stored encrypted and are never sent to viewers. Click a camera tile to open it full size. **Test** in the camera dialog connects and shows a picture before you save. If you have a UniFi Protect connection, **Find cameras** imports them with their stream addresses. A camera can be shown as live video or as a snapshot refreshed every 5 to 60 seconds, and the **Camera wall** tile shows several cameras at once (snapshots by default; pictures need ffmpeg in go2rtc, which the standard image includes).
 
 ## Security notes
 

@@ -171,3 +171,14 @@ dialog::backdrop{background:rgba(0,0,0,.55);backdrop-filter:blur(3px)}
 .mc-poster{width:30px;height:44px;object-fit:cover;border-radius:5px;background:var(--panel2);flex:none}
 .mc-poster.none{display:grid;place-items:center;font-size:11px;color:var(--mute)}
 .mc-list{display:flex;flex-direction:column;gap:8px;overflow:auto;min-height:0}.mc-lh{margin-bottom:2px}
+
+.cam-still{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.cam-still.stale{opacity:.45}
+.cam-off{position:absolute;right:8px;bottom:8px;z-index:2;font-size:11px;padding:1px 8px;border-radius:99px;background:#000a;color:var(--warn)}
+.wall{position:absolute;inset:0;display:grid;grid-auto-rows:1fr;gap:2px;background:#000}
+.wall-cell{position:relative;overflow:hidden;background:#000;min-height:0}
+.wall-empty{padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--panel);position:absolute;inset:0}
+.edit .tile.cam .wall .cam-frame{pointer-events:none}
+.cam-test{display:flex;flex-direction:column;gap:6px}
+.cam-test img{width:100%;max-width:320px;border-radius:10px;background:#000}
+.cam-test .ok{color:var(--ok)}.cam-test .bad{color:var(--warn)}

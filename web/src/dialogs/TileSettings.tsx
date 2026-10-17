@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { uid } from "../api";
-import type { IntegrationInfo, Tile } from "../types";
+import type { CameraInfo, IntegrationInfo, Tile } from "../types";
+import { REFRESH_CHOICES, refreshOf } from "../widgets/Camera";
 import type { LauncherItem } from "../widgets/Launcher";
 import { WIDGET_BY_TYPE } from "../widgets";
 import { Field, Modal } from "./Modal";
@@ -8,8 +9,8 @@ import { iconUrl } from "../api";
 import { initials } from "../widgets/common";
 import { SECTION_DEFS, resolveSections } from "../widgets/sections";
 
-export function TileSettings({ tile, integrations, onChange, onPickIcon, onOpenConnections, onClose }: {
-  tile: Tile; integrations: IntegrationInfo[]; onChange: (patch: Record<string, unknown>) => void;
+export function TileSettings({ tile, integrations, cameras = [], onAddCameras, onChange, onPickIcon, onOpenConnections, onClose }: {
+  tile: Tile; integrations: IntegrationInfo[]; cameras?: CameraInfo[]; onAddCameras?: () => void; onChange: (patch: Record<string, unknown>) => void;
   onPickIcon: (itemId: string) => void; onOpenConnections: () => void; onClose: () => void;
 }) {
   const def = WIDGET_BY_TYPE[tile.type];
@@ -31,6 +32,34 @@ export function TileSettings({ tile, integrations, onChange, onPickIcon, onOpenC
             ) : <div className="row"><span className="sub">No {def.label} connection yet.</span><button className="btn sm" onClick={onOpenConnections}>Add one</button></div>}
           </Field>
         )}
+        {tile.type === "camerawall" && (() => {
+          const chosen = (tile.config.cameraIds ?? []) as string[];
+          const mode = String(tile.config.mode ?? "snapshot");
+          const toggle = (id: string, on: boolean) => onChange({ cameraIds: on ? [...chosen, id] : chosen.filter(x => x !== id) });
+          const move = (i: number, d: number) => { const n = [...chosen]; const j = i + d; if (j < 0 || j >= n.length) return; [n[i], n[j]] = [n[j], n[i]]; onChange({ cameraIds: n }); };
+          const live = chosen.filter(id => cameras.some(c => c.id === id));
+          return (
+            <>
+              <div className="field"><span>Cameras</span>
+                {cameras.length ? (
+                  <div className="list sec-pick">{cameras.map(c => { const i = live.indexOf(c.id); return (
+                    <div key={c.id} className="li"><label className="chk"><input type="checkbox" checked={i >= 0} onChange={e => toggle(c.id, e.target.checked)} /> {c.name}</label>
+                      <span className="row" style={{ gap: 4 }}>
+                        <button type="button" className="btn sm" aria-label="Move up" disabled={i <= 0} onClick={() => move(chosen.indexOf(c.id), -1)}>↑</button>
+                        <button type="button" className="btn sm" aria-label="Move down" disabled={i < 0 || i === live.length - 1} onClick={() => move(chosen.indexOf(c.id), 1)}>↓</button>
+                      </span></div>
+                  ); })}</div>
+                ) : <span className="sub">No cameras yet.</span>}
+                {onAddCameras && <button type="button" className="btn sm" onClick={onAddCameras}>＋ Add or import cameras</button>}
+                <small>Tick the cameras to show and use the arrows to set the order. Click a camera on the wall to open it full size.</small></div>
+              <Field label="Show as" hint="Snapshots are pictures refreshed every few seconds. Live video for many cameras at once is heavy on the network and the browser.">
+                <select value={mode} onChange={e => onChange({ mode: e.target.value })}><option value="snapshot">Snapshots, refreshed</option><option value="live">Live video</option></select>
+              </Field>
+              {mode === "snapshot" && <Field label="Refresh every"><select value={String(refreshOf(tile.config.refresh))} onChange={e => onChange({ refresh: Number(e.target.value) })}>{REFRESH_CHOICES.map(n => <option key={n} value={n}>{n} seconds</option>)}</select></Field>}
+              {mode === "live" && live.length > 4 && <p className="sub">That is {live.length} live streams at once. If it feels slow, switch to snapshots.</p>}
+            </>
+          );
+        })()}
         {tile.type === "mediacalendar" && (() => {
           const arrs = integrations.filter(i => i.type === "sonarr" || i.type === "radarr");
           const chosen = (tile.config.integrationIds ?? []) as string[];

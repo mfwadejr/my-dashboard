@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { Store } from "./store.js";
 import type { DB } from "./db.js";
 import { logEvent } from "./db.js";
@@ -20,6 +21,20 @@ export function convertUnifiSource(url: string): { url: string; converted: boole
 }
 
 export function validCameraSource(url: string): boolean { return url.length <= 600 && SOURCE.test(url); }
+
+/** Turn go2rtc's raw error into something a person can act on. The address (and any password in it) never appears in the result. */
+function explainProbe(raw: string, src: string): string {
+  const secrets = [src, src.match(/^[a-z][a-z0-9+.-]*:\/\/[^:/@\s]+:([^@\s]+)@/i)?.[1] ?? ""].filter(x => x.length >= 4);
+  const detail = secrets.reduce((t, x) => t.split(x).join("…"), raw).replace(/\s+/g, " ").trim().slice(0, 160);
+  const hint =
+    /401|403|unauthori[sz]ed|forbidden|auth/i.test(raw) ? "The camera rejected the username or password."
+    : /refused/i.test(raw) ? "The camera refused the connection. Check the port, and that RTSP is turned on for this camera."
+    : /timeout|timed out|i\/o|deadline/i.test(raw) ? "No answer from the camera. Check the address, and that Homebase can reach the camera's network (port 554, or 7447 for UniFi Protect)."
+    : /no such host|no route|unreachable|lookup/i.test(raw) ? "Homebase cannot find that address on the network."
+    : /ffmpeg/i.test(raw) ? "The relay could not make a picture (it needs ffmpeg). The stream may still play live."
+    : "The camera did not give a picture.";
+  return detail ? `${hint} (${detail})` : hint;
+}
 
 export class Go2rtc {
   private timer?: NodeJS.Timeout;
@@ -46,6 +61,29 @@ export class Go2rtc {
     await put(mainName(cameraId), cam.main);
     // Without a separate sub-stream the grid just uses the main stream under a second name.
     await put(subName(cameraId), cam.sub || cam.main);
+  }
+
+  /** Connect to an address through go2rtc and grab one picture. Uses a throwaway stream name that is removed afterwards. */
+  async probe(src: string): Promise<{ ok: boolean; message: string; image?: string }> {
+    if (!this.base) return { ok: false, message: "The camera relay (go2rtc) is not configured." };
+    const name = `hbtest-${randomBytes(6).toString("hex")}`;
+    try {
+      const put = await this.call("PUT", "/api/streams", { name, src });
+      if (!put.ok) return { ok: false, message: `The camera relay answered ${put.status}.` };
+      const url = new URL(this.base + "/api/frame.jpeg");
+      url.searchParams.set("src", name);
+      const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+      const type = res.headers.get("content-type") ?? "";
+      if (res.ok && type.startsWith("image/")) {
+        const bytes = Buffer.from(await res.arrayBuffer());
+        return { ok: true, message: "Connected. The camera sent a picture.", ...(bytes.length <= 2_000_000 ? { image: `data:${type};base64,${bytes.toString("base64")}` } : {}) };
+      }
+      return { ok: false, message: explainProbe(await res.text().catch(() => ""), src) };
+    } catch (error) {
+      return { ok: false, message: explainProbe(error instanceof Error && error.name === "TimeoutError" ? "timeout" : String(error instanceof Error ? error.message : error), src) };
+    } finally {
+      await this.call("DELETE", "/api/streams", { src: name }).catch(() => {});
+    }
   }
 
   async remove(cameraId: string): Promise<void> {

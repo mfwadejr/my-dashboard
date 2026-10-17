@@ -2,6 +2,8 @@ import httpProxy from "@fastify/http-proxy";
 import type { FastifyInstance, preHandlerAsyncHookHandler } from "fastify";
 import { STREAM_NAME, convertUnifiSource, validCameraSource, type Go2rtc } from "../go2rtc.js";
 import type { Store } from "../store.js";
+import { unmaskUrlSecret } from "../crypto.js";
+import { protectCameras, protectStreams } from "../integrations/unifi.js";
 
 function parse(body: any, existing = false) {
   const name = String(body?.name ?? "").trim() || "Camera";
@@ -20,6 +22,58 @@ const ALLOWED = new Set(["/stream.html", "/video-stream.js", "/video-rtc.js", "/
 export async function cameraRoutes(app: FastifyInstance, store: Store, go2rtc: Go2rtc, go2rtcUrl: string | null, requireAuth: preHandlerAsyncHookHandler): Promise<void> {
   app.get("/api/cameras", async () => store.listCameras());
   app.get("/api/go2rtc/status", async () => go2rtc.status());
+
+  // Try an address before saving it: connects through go2rtc and returns one picture when it works.
+  app.post("/api/cameras/test", { preHandler: requireAuth }, async (request, reply) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const old = typeof body.cameraId === "string" ? store.getCamera(body.cameraId) : undefined;
+    const results: Array<{ which: string; ok: boolean; message: string; image?: string }> = [];
+    for (const [which, raw, stored] of [["main", body.main, old?.main ?? ""], ["sub", body.sub, old?.sub ?? ""]] as const) {
+      const text = String(raw ?? "").trim();
+      if (!text) { if (which === "main") return reply.code(400).send({ error: "Enter the main stream address first" }); continue; }
+      const src = convertUnifiSource(unmaskUrlSecret(text, stored)).url;
+      if (!validCameraSource(src)) return reply.code(400).send({ error: `The ${which} stream must be an rtsp://, rtsps://, rtmp://, http:// or https:// address` });
+      results.push({ which, ...(await go2rtc.probe(src)) });
+    }
+    return { results };
+  });
+
+  // Import cameras from a UniFi Protect connection.
+  const protectRow = (id: string) => { const row = store.getIntegration(id); return row && row.type === "unifi-protect" ? row : undefined; };
+  app.get("/api/protect/:id/cameras", { preHandler: requireAuth }, async (request, reply) => {
+    const row = protectRow((request.params as { id: string }).id);
+    if (!row) return reply.code(404).send({ error: "That is not a UniFi Protect connection" });
+    try {
+      const list = await protectCameras(store.ctxOf(row));
+      return list.map(c => ({ ...c }));
+    } catch (error) { return reply.code(502).send({ error: error instanceof Error ? error.message : "Could not list cameras" }); }
+  });
+  app.post("/api/protect/:id/import", { preHandler: requireAuth }, async (request, reply) => {
+    const row = protectRow((request.params as { id: string }).id);
+    if (!row) return reply.code(404).send({ error: "That is not a UniFi Protect connection" });
+    const ids = Array.isArray((request.body as any)?.ids) ? ((request.body as any).ids as unknown[]).filter((x): x is string => typeof x === "string").slice(0, 30) : [];
+    if (!ids.length) return reply.code(400).send({ error: "Choose at least one camera" });
+    const ctx = store.ctxOf(row);
+    let known;
+    try { known = await protectCameras(ctx); } catch (error) { return reply.code(502).send({ error: error instanceof Error ? error.message : "Could not list cameras" }); }
+    const existing = new Set(store.listCameras().map(c => store.getCamera(c.id)?.main));
+    const created: Array<{ id: string; name: string }> = [], skipped: Array<{ name: string; reason: string }> = [];
+    for (const id of ids) {
+      const cam = known.find(c => c.id === id);
+      if (!cam) { skipped.push({ name: id.slice(0, 20), reason: "Not found on this console" }); continue; }
+      try {
+        const s = await protectStreams(ctx, id);
+        const main = convertUnifiSource(s.main).url, sub = s.sub ? convertUnifiSource(s.sub).url : "";
+        if (!validCameraSource(main) || (sub && !validCameraSource(sub))) { skipped.push({ name: cam.name, reason: "Protect returned an address Homebase cannot use" }); continue; }
+        if (existing.has(main)) { skipped.push({ name: cam.name, reason: "Already added" }); continue; }
+        const newId = store.createCamera({ name: cam.name, main, sub });
+        existing.add(main);
+        await go2rtc.upsert(newId).catch(() => {});
+        created.push({ id: newId, name: cam.name });
+      } catch (error) { skipped.push({ name: cam.name, reason: error instanceof Error ? error.message.slice(0, 120) : "Failed" }); }
+    }
+    return { created, skipped };
+  });
 
   app.get("/api/cameras/:id", { preHandler: requireAuth }, async (request, reply) => {
     const cam = store.getCameraMasked((request.params as { id: string }).id);

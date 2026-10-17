@@ -1,5 +1,6 @@
 import { Arr } from "./Arr";
 import { Camera } from "./Camera";
+import { CameraWall } from "./CameraWall";
 import { Clock } from "./Clock";
 import { Launcher } from "./Launcher";
 import { MediaCalendar } from "./MediaCalendar";
@@ -29,6 +30,7 @@ export const WIDGETS: WidgetDef[] = [
   { type: "unraid", label: "Unraid", description: "Array, disks, Docker, VMs, CPU and memory", size: [3, 4], needs: "unraid", component: Unraid },
   { type: "zimaos", label: "ZimaOS", description: "CPU, memory, storage, apps, updates", size: [3, 3], needs: "zimaos", component: Zima },
   { type: "camera", label: "Camera", description: "Live camera feed through go2rtc", size: [2, 2], component: Camera },
+  { type: "camerawall", label: "Camera wall", description: "Several cameras in one tile, stills or live", size: [6, 4], component: CameraWall },
   { type: "clock", label: "Clock", description: "Time and date", size: [2, 1], component: Clock },
   { type: "notes", label: "Notes", description: "A sticky note", size: [2, 2], component: Notes }
 ];

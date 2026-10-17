@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { WidgetProps } from "./types";
 import { Empty, Title } from "./common";
 
@@ -14,6 +14,48 @@ export function CameraPlayer({ cameraId, main }: { cameraId: string; main?: bool
   );
 }
 
+/**
+ * A still picture from go2rtc, refreshed every few seconds. Much lighter than live video, which matters when many cameras are on screen.
+ * The next picture is fetched in the background and swapped in, so there is no flicker; polling pauses while the page is hidden.
+ */
+export function CameraSnapshot({ cameraId, refreshSec }: { cameraId: string; refreshSec: number }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let stop = false, timer = 0, current: string | null = null;
+    const ctl = new AbortController();
+    const next = (ms: number) => { if (!stop) timer = window.setTimeout(load, ms); };
+    const load = async () => {
+      if (stop) return;
+      if (document.hidden) return next(2000);
+      try {
+        const res = await fetch(`/go2rtc/api/frame.jpeg?src=cam-${cameraId}-sub&t=${Date.now()}`, { credentials: "same-origin", signal: ctl.signal });
+        if (!res.ok || !(res.headers.get("content-type") ?? "").startsWith("image/")) throw new Error("no picture");
+        const url = URL.createObjectURL(await res.blob());
+        if (stop) { URL.revokeObjectURL(url); return; }
+        if (current) URL.revokeObjectURL(current);
+        current = url; setSrc(url); setFailed(false); next(refreshSec * 1000);
+      } catch { if (!stop) { setFailed(true); next(Math.max(refreshSec, 10) * 1000); } }
+    };
+    void load();
+    return () => { stop = true; ctl.abort(); window.clearTimeout(timer); if (current) URL.revokeObjectURL(current); };
+  }, [cameraId, refreshSec]);
+  return (
+    <div className="cam-frame">
+      {src ? <img className={`cam-still${failed ? " stale" : ""}`} src={src} alt="" /> : <div className="cam-loading">{failed ? "No picture" : "Loading…"}</div>}
+      {src && failed && <div className="cam-off">Offline</div>}
+    </div>
+  );
+}
+
+/** One camera, either as live video or as a refreshing still, depending on the tile's setting. */
+export function CameraFeed({ cameraId, mode, refreshSec }: { cameraId: string; mode: string; refreshSec: number }) {
+  return mode === "snapshot" ? <CameraSnapshot cameraId={cameraId} refreshSec={refreshSec} /> : <CameraPlayer cameraId={cameraId} />;
+}
+
+export const REFRESH_CHOICES = [5, 10, 30, 60];
+export const refreshOf = (v: unknown) => (REFRESH_CHOICES.includes(Number(v)) ? Number(v) : 10);
+
 export function Camera({ tile, cameras, editing, openCamera, openSettings }: WidgetProps) {
   const cameraId = tile.config.cameraId as string | undefined;
   const cam = cameras.find(c => c.id === cameraId);
@@ -28,7 +70,7 @@ export function Camera({ tile, cameras, editing, openCamera, openSettings }: Wid
   }
   return (
     <>
-      <CameraPlayer cameraId={cameraId} />
+      <CameraFeed cameraId={cameraId} mode={String(tile.config.mode ?? "live")} refreshSec={refreshOf(tile.config.refresh)} />
       <div className="cov top"><span className="cname">{cam.name}</span></div>
       {!editing && <button className="cam-hit" aria-label={`Open ${cam.name}`} onClick={() => openCamera(cameraId)} />}
     </>

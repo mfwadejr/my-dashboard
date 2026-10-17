@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildApp } from "../src/index.js";
 import { KEY, inDays, mockGo2rtc, mockRadarr, mockSab, mockSonarr } from "./mocks.js";
+import { mockUnifi } from "./mocks2.js";
 
 process.env.NODE_ENV = "test";
 const H = { "x-homebase": "1" };
@@ -233,6 +234,52 @@ test("cameras: UniFi's secure rtsps link is converted to the plain rtsp address,
   const authed = await call("POST", "/api/cameras", { name: "Door", main: "rtsps://admin:pw@10.0.0.5:7441/abc?enableSrtp" });
   assert.equal(g2.streams.get(`cam-${authed.json().id}`), "rtsp://admin:pw@10.0.0.5:7447/abc");
   for (const id of [made.json().id, authed.json().id, ...made2]) await call("DELETE", `/api/cameras/${id}`);
+});
+
+test("cameras: the Test button gives a picture or a plain-language reason, and leaves nothing behind", async () => {
+  const test = (body: object) => call("POST", "/api/cameras/test", body);
+  const ok = (await test({ main: "rtsp://admin:pw@192.168.1.20:554/s1" })).json().results[0];
+  assert.deepEqual([ok.which, ok.ok], ["main", true]); assert.match(ok.image, /^data:image\/jpeg;base64,/);
+  const bad = (await test({ main: "rtsp://admin:topsecret@badcam.local/s1" })).json();
+  assert.equal(bad.results[0].ok, false); assert.match(bad.results[0].message, /No answer from the camera/);
+  assert.ok(!JSON.stringify(bad).includes("topsecret") && !JSON.stringify(bad).includes("badcam.local"), "the address and password are never echoed");
+  const auth = (await test({ main: "rtsp://admin:pw@authfail.local/s1" })).json().results[0];
+  assert.match(auth.message, /username or password/);
+  const both = (await test({ main: "rtsps://192.168.1.2:7441/tok?enableSrtp", sub: "rtsp://admin:pw@192.168.1.20/s2" })).json().results;
+  assert.deepEqual(both.map((r: any) => [r.which, r.ok]), [["main", true], ["sub", true]]);
+  assert.equal([...g2.streams.keys()].filter(k => k.startsWith("hbtest-")).length, 0, "throwaway test streams are removed");
+  for (const evil of ["exec:rm -rf /", "file:///etc/passwd", ""]) assert.equal((await test({ main: evil })).statusCode, 400, evil);
+  // Editing a saved camera: the masked password is restored before testing.
+  const saved = (await call("POST", "/api/cameras", { name: "T", main: "rtsp://admin:s3cret@badcam.local/x" })).json().id;
+  const masked = (await call("GET", `/api/cameras/${saved}`)).json();
+  const viaMask = (await test({ cameraId: saved, main: masked.main })).json();
+  assert.match(viaMask.results[0].message, /No answer/); assert.ok(!JSON.stringify(viaMask).includes("s3cret"));
+  await call("DELETE", `/api/cameras/${saved}`);
+  const anon = cookie; cookie = "";
+  assert.equal((await test({ main: "rtsp://a/b" })).statusCode, 401, "viewers cannot probe your network");
+  cookie = anon;
+});
+
+test("cameras: import from UniFi Protect uses the converted plain addresses, skips duplicates and failures", async () => {
+  const protect = await mockUnifi();
+  try {
+    const pid = (await call("POST", "/api/integrations", { type: "unifi-protect", name: "Protect", url: protect.url, apiKey: KEY })).json().id;
+    const list = (await call("GET", `/api/protect/${pid}/cameras`)).json();
+    assert.deepEqual(list.map((c: any) => [c.id, c.name]), [["c1", "Front"], ["c2", "Back"], ["c3", "Drive"]]);
+    const run = (await call("POST", `/api/protect/${pid}/import`, { ids: ["c1", "c2", "c3", "nope", "../x"] })).json();
+    assert.deepEqual(run.created.map((c: any) => c.name).sort(), ["Drive", "Front"]);
+    const front = run.created.find((c: any) => c.name === "Front").id;
+    assert.equal(g2.streams.get(`cam-${front}`), "rtsp://192.168.1.1:7447/tokHigh1");
+    assert.equal(g2.streams.get(`cam-${front}-sub`), "rtsp://192.168.1.1:7447/tokLow1");
+    assert.deepEqual(run.skipped.map((s: any) => s.name).sort(), ["../x".slice(0, 20), "Back", "nope"].sort());
+    const again = (await call("POST", `/api/protect/${pid}/import`, { ids: ["c1", "c3"] })).json();
+    assert.equal(again.created.length, 0); assert.ok(again.skipped.every((s: any) => /Already added/.test(s.reason)));
+    assert.equal((await call("POST", `/api/protect/${pid}/import`, { ids: [] })).statusCode, 400);
+    assert.equal((await call("GET", `/api/protect/${(await call("GET", "/api/integrations")).json().find((i: any) => i.type !== "unifi-protect").id}/cameras`)).statusCode, 404, "only Protect connections");
+    assert.ok(!JSON.stringify((await call("GET", "/api/cameras")).json()).includes("tokHigh1"), "tokens never reach viewers");
+    for (const c of run.created) await call("DELETE", `/api/cameras/${c.id}`);
+    await call("DELETE", `/api/integrations/${pid}`);
+  } finally { await protect.close(); }
 });
 
 test("cameras: only safe sources, passwords hidden, synced to go2rtc, orphan cleanup", async () => {

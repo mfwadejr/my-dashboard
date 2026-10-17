@@ -42,7 +42,7 @@ export function TileFrame(p: FrameProps) {
 
   const props: WidgetProps = { ...p, setConfig: patch => p.onConfig(tile.id, patch), openSettings: () => p.onSettings(tile) };
   const Body = def?.component;
-  const cam = tile.type === "camera";
+  const cam = tile.type === "camera" || tile.type === "camerawall";
   return (
     <div
       className={`tile w${tile.w} h${tile.h} ${cam ? "cam" : ""} ${p.dragging ? "drag" : ""}`}

@@ -61,6 +61,16 @@ export function App() {
   const findTile = (tid: string) => tab?.groups.flatMap(g => g.tiles).find(t => t.id === tid);
   const setConfig = (tid: string, patch: Record<string, unknown>) => editTile(tid, t => ({ ...t, config: { ...t.config, ...patch } }));
 
+  /** A camera was saved or imported from a tile's dialog: a camera tile shows it, a camera wall adds it to its list. */
+  const afterCameraAdded = (tid: string, ids: string[]) => {
+    const t = findTile(tid);
+    if (t?.type === "camerawall") {
+      const have = (t.config.cameraIds ?? []) as string[];
+      setConfig(tid, { cameraIds: [...have, ...ids.filter(id => !have.includes(id))] });
+      setDlg({ kind: "settings", tileId: tid, v: Date.now() });
+    } else { setConfig(tid, { cameraId: ids[0] }); setDlg(null); }
+  };
+
   const addTile = (gid: string, type: string) => {
     const def = WIDGET_BY_TYPE[type]; if (!def) return;
     const tile: Tile = { id: uid(), type, w: def.size[0], h: def.size[1], config: {} };
@@ -155,7 +165,8 @@ export function App() {
       {dlg?.kind === "connections" && <IntegrationsDialog integrations={integrations} onChanged={refreshIntegrations} onClose={() => setDlg(null)} />}
       {dlg?.kind === "tab" && <TabDialog tab={dlg.edit ? tab : undefined} canDelete={doc.tabs.length > 1} onSave={saveTab} onDelete={deleteTab} onClose={() => setDlg(null)} />}
       {dlg?.kind === "settings" && settingsTile && (
-        <TileSettings key={dlg.v} tile={settingsTile} integrations={integrations}
+        <TileSettings key={dlg.v} tile={settingsTile} integrations={integrations} cameras={cameras}
+          onAddCameras={() => setDlg({ kind: "camera", tileId: settingsTile.id })}
           onChange={patch => setConfig(settingsTile.id, patch)}
           onPickIcon={itemId => setDlg({ kind: "icon", tileId: settingsTile.id, itemId })}
           onOpenConnections={() => setDlg({ kind: "connections" })} onClose={() => setDlg(null)} />
@@ -172,14 +183,16 @@ export function App() {
       )}
       {dlg?.kind === "camPick" && settingsTile && (
         <CameraPick cameras={cameras} current={settingsTile.config.cameraId as string | undefined}
+          config={settingsTile.config} onConfig={patch => setConfig(settingsTile.id, patch)}
           onPick={id => { setConfig(settingsTile.id, { cameraId: id }); setDlg(null); }}
           onAdd={() => setDlg({ kind: "camera", tileId: settingsTile.id })}
           onEdit={id => setDlg({ kind: "camera", tileId: settingsTile.id, id })}
           onClose={() => setDlg(null)} />
       )}
       {dlg?.kind === "camera" && (
-        <CameraDialog cameraId={dlg.id}
-          onSaved={id => { refreshCameras(); setConfig(dlg.tileId, { cameraId: id }); setDlg(null); }}
+        <CameraDialog cameraId={dlg.id} integrations={integrations}
+          onSaved={id => { refreshCameras(); afterCameraAdded(dlg.tileId, [id]); }}
+          onImported={ids => { refreshCameras(); afterCameraAdded(dlg.tileId, ids); }}
           onRemove={dlg.id ? async () => { await api.del(`/api/cameras/${dlg.id}`); refreshCameras(); setDlg(null); } : undefined}
           onClose={() => setDlg(null)} />
       )}
