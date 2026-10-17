@@ -9,6 +9,7 @@ import { Lightbox } from "./components/Lightbox";
 import { CameraPick } from "./components/CameraPick";
 import { AuthDialog } from "./dialogs/AuthDialog";
 import { CameraDialog } from "./dialogs/CameraDialog";
+import { Modal } from "./dialogs/Modal";
 import { IconPicker } from "./dialogs/IconPicker";
 import { IntegrationsDialog } from "./dialogs/IntegrationsDialog";
 import { TabDialog } from "./dialogs/TabDialog";
@@ -34,7 +35,7 @@ export function App() {
     | { kind: "auth" } | { kind: "connections" } | { kind: "tab"; edit: boolean }
     | { kind: "settings"; tileId: string; v: number } | { kind: "icon"; tileId: string; itemId: string }
     | { kind: "camPick"; tileId: string } | { kind: "camera"; tileId: string; id?: string }
-    | { kind: "lightbox"; cameraId: string } | null
+    | { kind: "lightbox"; cameraId: string } | { kind: "imported"; tileId: string; ids: string[] } | null
   >(null);
   const search = useRef<HTMLInputElement>(null);
 
@@ -68,7 +69,23 @@ export function App() {
       const have = (t.config.cameraIds ?? []) as string[];
       setConfig(tid, { cameraIds: [...have, ...ids.filter(id => !have.includes(id))] });
       setDlg({ kind: "settings", tileId: tid, v: Date.now() });
-    } else { setConfig(tid, { cameraId: ids[0] }); setDlg(null); }
+    } else if (ids.length > 1) setDlg({ kind: "imported", tileId: tid, ids });
+    else { setConfig(tid, { cameraId: ids[0] }); setDlg(null); }
+  };
+  /** Several cameras arrived from a single camera tile: turn it into a wall, or give each camera its own tile. */
+  const makeWall = (tid: string, ids: string[]) => {
+    editTile(tid, t => ({ ...t, type: "camerawall", w: Math.max(t.w, 6), h: Math.max(t.h, 5), config: { cameraIds: [...new Set([...(t.config.cameraId ? [String(t.config.cameraId)] : []), ...ids])], mode: "snapshot", refresh: 10 } }));
+    setDlg(null);
+  };
+  const splitTiles = (tid: string, ids: string[]) => {
+    const g = tab?.groups.find(x => x.tiles.some(y => y.id === tid));
+    if (!g) return setDlg(null);
+    const size = WIDGET_BY_TYPE.camera.size;
+    editGroup(g.id, grp => applyLayout({ ...grp, tiles: [
+      ...grp.tiles.map(x => (x.id === tid ? { ...x, config: { ...x.config, cameraId: ids[0] } } : x)),
+      ...ids.slice(1).map(id => ({ id: uid(), type: "camera", w: size[0], h: size[1], config: { cameraId: id } }))
+    ] }));
+    setDlg(null);
   };
 
   const addTile = (gid: string, type: string) => {
@@ -195,6 +212,17 @@ export function App() {
           onImported={ids => { refreshCameras(); afterCameraAdded(dlg.tileId, ids); }}
           onRemove={dlg.id ? async () => { await api.del(`/api/cameras/${dlg.id}`); refreshCameras(); setDlg(null); } : undefined}
           onClose={() => setDlg(null)} />
+      )}
+      {dlg?.kind === "imported" && (
+        <Modal title={`${dlg.ids.length} cameras imported`} eyebrow="Camera import" onClose={() => setDlg(null)}>
+          <p className="sub">A camera tile shows one camera. How do you want to show these {dlg.ids.length}?</p>
+          <div className="form">
+            <button type="button" className="btn pri" onClick={() => makeWall(dlg.tileId, dlg.ids)}>All in one camera wall (snapshots)</button>
+            <button type="button" className="btn" onClick={() => splitTiles(dlg.tileId, dlg.ids)}>A separate tile for each camera</button>
+            <button type="button" className="btn" onClick={() => { setConfig(dlg.tileId, { cameraId: dlg.ids[0] }); setDlg(null); }}>Just show the first one for now</button>
+          </div>
+          <small className="sub">They are all saved either way. You can add the others later from any camera tile's picker.</small>
+        </Modal>
       )}
       {dlg?.kind === "lightbox" && <Lightbox cameraId={dlg.cameraId} cameras={cameras} onClose={() => setDlg(null)} />}
     </>

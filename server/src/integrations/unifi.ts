@@ -165,7 +165,12 @@ async function protectPoll(ctx: Ctx): Promise<PollResult> {
 /** Cameras on a Protect console, for importing into the camera wall. */
 export async function protectCameras(ctx: Ctx): Promise<Array<{ id: string; name: string; state: string }>> {
   const doc = await hinted("UniFi Protect", () => get(ctx, `${PROT}/cameras`));
-  return items(doc).filter(c => typeof c?.id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(c.id)).map(c => ({ id: String(c.id), name: String(c.name ?? "Camera").slice(0, 60), state: String(c.state ?? "UNKNOWN") }));
+  let list = items(doc);
+  if (!list.length && doc && !Array.isArray(doc) && Array.isArray(doc.cameras)) list = doc.cameras;
+  if (!list.length && doc && typeof doc === "object" && !Array.isArray(doc) && Object.keys(doc).length > 0 && !("data" in doc)) {
+    throw new IntegrationError(`Protect answered, but not with a list of cameras (it sent: ${Object.keys(doc).slice(0, 8).join(", ")})`);
+  }
+  return list.filter(c => typeof c?.id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(c.id)).map(c => ({ id: String(c.id), name: String(c.name ?? "Camera").slice(0, 60), state: String(c.state ?? "UNKNOWN") }));
 }
 
 /** The RTSPS address(es) Protect hands out for a camera. Asks for existing ones first, and creates them only if there are none. */

@@ -19,7 +19,7 @@ function ProtectImport({ protect, onImported }: { protect: IntegrationInfo[]; on
   const [msg, setMsg] = useState("");
   const find = async () => {
     setBusy(true); setMsg(""); setFound(null);
-    try { const list = await api.get<Found[]>(`/api/protect/${pid}/cameras`); setFound(list); setPicked(list.filter(c => c.state.toUpperCase() === "CONNECTED").map(c => c.id)); if (!list.length) setMsg("No cameras found on that console."); }
+    try { const list = await api.get<Found[]>(`/api/protect/${pid}/cameras`); setFound(list); setPicked(list.filter(c => c.state.toUpperCase() === "CONNECTED").map(c => c.id)); setMsg(list.length ? `Found ${list.length} camera${list.length === 1 ? "" : "s"}.` : "Protect answered, but it lists no cameras."); }
     catch (e) { setMsg(e instanceof Error ? e.message : "Could not list cameras"); }
     setBusy(false);
   };
