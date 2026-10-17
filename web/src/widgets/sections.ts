@@ -38,6 +38,18 @@ export const SECTION_DEFS: Record<string, SectionDef[]> = {
     { id: "limit", label: "Speed limit", hint: "Current limit, and change it when signed in", on: false },
     { id: "history", label: "History", hint: "Recent finished and failed jobs, retry a failed one, totals for today and this week", on: true }
   ],
+  unraid: [
+    { id: "summary", label: "Server and array state", hint: "Host name, array state and parity-check progress", on: true },
+    { id: "array", label: "Array capacity", hint: "Used and total space with a bar", on: true },
+    { id: "gauges", label: "CPU and RAM gauges", hint: "Round gauges, with the hottest disk underneath", on: true },
+    { id: "graph", label: "CPU and RAM history", hint: "Graphs over the last few hours", on: false },
+    { id: "status", label: "Status badges", hint: "Containers and VMs running, updates, alerts, warnings, disk problems", on: true },
+    { id: "disks", label: "Disks", hint: "Every parity, data and cache disk with use and temperature", on: true },
+    { id: "parity", label: "Parity check", hint: "Progress of a running check and the result of the last one", on: false },
+    { id: "shares", label: "Shares", hint: "Each share with how much space it uses", on: false },
+    { id: "containers", label: "Docker containers", hint: "Every container with its state; start, stop or restart when signed in", on: false },
+    { id: "vms", label: "Virtual machines", hint: "Every VM with its state; start, stop or reboot when signed in", on: false }
+  ],
   prowlarr: [
     { id: "summary", label: "Summary", hint: "Enabled, blocked and grab counts, with the first health warning", on: true },
     { id: "stats", label: "Failure stats", hint: "Success rate, failed searches and failed grabs", on: true },

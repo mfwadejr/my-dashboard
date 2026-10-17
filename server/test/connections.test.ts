@@ -149,8 +149,34 @@ test("Unraid: reads each section, tolerates a forbidden one, key stays in the he
     assert.equal(d.array.hottest, 52); assert.equal(d.array.diskProblems, 1); assert.equal(d.array.check.progress, 42);
     assert.deepEqual([d.docker.total, d.docker.running, d.docker.updates, d.docker.stopped[0]], [3, 2, 1, "old-thing"]);
     assert.equal(d.vms, null); assert.equal(d.notifications.warning, 1);
+    assert.deepEqual(d.docker.list.map((c: any) => [c.name, c.running, c.update]), [["plex", true, true], ["sonarr", true, false], ["old-thing", false, false]]);
+    assert.equal(d.docker.list[0].image, "plexinc/pms-docker");
+    assert.deepEqual(d.shares.map((x: any) => [x.name, x.usedPct]), [["media", 75], ["appdata", 10]]);
+    assert.deepEqual([d.array.lastCheck.status, d.array.lastCheck.errors, d.array.lastCheck.speed], ["OK", 2, "88 MB/s"], "the newest parity check wins");
     assert.ok(un.hits.every(h => !h.includes(KEY)));
     assert.equal((await call("GET", `/api/metrics/${id}/docker_running?minutes=60`)).json()[0][1], 2);
+  } finally { await un.close(); }
+});
+
+test("Unraid: container and VM buttons send fixed mutations and refuse odd ids", async () => {
+  const un = await mockUnraid({ vms: true });
+  try {
+    const id = await create({ type: "unraid", name: "Tower", url: un.url, apiKey: KEY });
+    const d = (await data(id)).data;
+    assert.deepEqual(d.vms.list.map((v: any) => [v.name, v.running]), [["Windows", true], ["Test", false]]);
+    const act = (name: string, body: unknown) => call("POST", `/api/integrations/${id}/actions/${name}`, body);
+    const before = un.queries.length;
+    assert.equal((await act("containerstop", { id: "srv:abc123" })).statusCode, 200);
+    assert.equal((await act("containerstart", { id: "srv:abc123" })).statusCode, 200);
+    assert.equal((await act("vmreboot", { id: "v1" })).statusCode, 200);
+    assert.deepEqual(un.queries.slice(before).filter(q => q.startsWith("mutation")), [
+      'mutation { docker { stop(id: "srv:abc123") { id state } } }', 'mutation { docker { start(id: "srv:abc123") { id state } } }', 'mutation { vm { reboot(id: "v1") } }']);
+    const mark = un.queries.filter(q => q.startsWith("mutation")).length;
+    for (const bad of [{ id: 'x") { id } } mutation { docker { stop(id: "y' }, { id: "" }, { id: "a b" }, {}]) assert.equal((await act("containerstop", bad)).statusCode, 502, JSON.stringify(bad));
+    assert.equal(un.queries.filter(q => q.startsWith("mutation")).length, mark, "refused ids never reach Unraid");
+    const denied = await act("containerstart", { id: "denied" });
+    assert.equal(denied.statusCode, 502); assert.match(denied.json().error, /Forbidden/);
+    assert.equal((await act("containerrestart", { id: "srv:abc123" })).statusCode, 200);
   } finally { await un.close(); }
 });
 

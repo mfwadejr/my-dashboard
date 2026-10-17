@@ -1,23 +1,14 @@
 import { useState, type ReactNode } from "react";
+
+const Confirm = ({ label, sure, onGo, disabled }: { label: string; sure: string; onGo: () => void; disabled?: boolean }) => <ConfirmBtn label="✕" name={label} sure={sure} onGo={onGo} disabled={disabled} />;
 import { api } from "../api";
 import { useSeries } from "../hooks";
 import type { WidgetProps } from "./types";
-import { Bar, Empty, Live, Pill, Sparkline, Title, formatSize, formatSpeed } from "./common";
+import { Bar, Confirm as ConfirmBtn, Empty, Live, Pill, Sparkline, Title, formatSize, formatSpeed } from "./common";
 import { NeedsConnection } from "./Arr";
 import { resolveSections } from "./sections";
 
 type Act = (name: string, body?: Record<string, unknown>) => Promise<void>;
-
-/** A small button that asks twice before doing something that cannot be undone. */
-function Confirm({ label, sure, onGo, disabled }: { label: string; sure: string; onGo: () => void; disabled?: boolean }) {
-  const [armed, setArmed] = useState(false);
-  return (
-    <button type="button" className="btn sm" disabled={disabled} aria-label={label}
-      onClick={() => { if (armed) { setArmed(false); onGo(); } else { setArmed(true); window.setTimeout(() => setArmed(false), 3000); } }}>
-      {armed ? sure : "✕"}
-    </button>
-  );
-}
 
 const statusTone = (d: any) => (d.paused ? "warn" : /download|fetch|grab/i.test(d.status) ? "ok" : "mute");
 

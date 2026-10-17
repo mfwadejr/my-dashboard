@@ -20,6 +20,19 @@ async function firstOf(ctx: Ctx, queries: string[]): Promise<any> {
   throw last;
 }
 
+/** Container and VM ids come from the browser and go into a GraphQL document, so only plain id characters are accepted. */
+function targetId(args: Record<string, unknown>): string {
+  const id = args.id;
+  if (typeof id !== "string" || !/^[A-Za-z0-9:_.-]{1,200}$/.test(id)) throw new IntegrationError("That is not a valid id");
+  return id;
+}
+async function mutate(ctx: Ctx, query: string): Promise<{ ok: true }> {
+  const doc = await getJson(ctx, "/graphql", { headers: { "x-api-key": ctx.apiKey }, body: { query }, timeoutMs: 30_000 });
+  if (doc?.errors?.length) throw new IntegrationError(String(doc.errors[0]?.message ?? "Unraid refused that").slice(0, 200));
+  return { ok: true };
+}
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
 const num = (v: unknown): number | null => { const n = Number(v); return v !== null && v !== undefined && v !== "" && Number.isFinite(n) ? n : null; };
 
 const Q = {
@@ -30,8 +43,10 @@ const Q = {
     "{ array { state capacity { kilobytes { free used total } } disks { name status temp size fsSize fsFree fsUsed } caches { name status temp fsSize fsFree fsUsed } } }",
     "{ array { state capacity { disks { free used total } } disks { name size status temp } } }"
   ],
-  docker: ["{ docker { containers { id names state status autoStart isUpdateAvailable } } }", "{ dockerContainers { id names state status autoStart } }"],
+  docker: ["{ docker { containers { id names image state status autoStart isUpdateAvailable } } }", "{ docker { containers { id names state status autoStart isUpdateAvailable } } }", "{ dockerContainers { id names state status autoStart } }"],
   vms: ["{ vms { domains { id name state } } }"],
+  shares: ["{ shares { name free used size cache } }", "{ shares { name free used size } }"],
+  parity: ["{ parityHistory { date duration speed status errors } }", "{ parityHistory { date duration status errors } }"],
   notifications: ["{ notifications { overview { unread { info warning alert total } } } }"]
 } as const;
 
@@ -64,6 +79,12 @@ function shape(sections: Partial<Record<Section, any>>) {
   const total = num(kb?.total ?? legacy?.total), used = num(kb?.used ?? legacy?.used), free = num(kb?.free ?? legacy?.free);
   const disks = a ? [...(a.parities ?? []).map((d: any) => diskRow(d, "parity")), ...(a.disks ?? []).map((d: any) => diskRow(d, "data")), ...(a.caches ?? []).map((d: any) => diskRow(d, "cache"))] : [];
   const check = a?.parityCheckStatus;
+  const history = (sections.parity?.parityHistory ?? []) as any[];
+  const lastCheck = history.length ? [...history].sort((x, y) => String(y.date).localeCompare(String(x.date)))[0] : null;
+  const shares = ((sections.shares?.shares ?? []) as any[]).map(x => {
+    const free = num(x.free), used = num(x.used), size = num(x.size) ?? (free !== null && used !== null ? free + used : null);
+    return { name: String(x.name ?? "share"), usedKB: used, totalKB: size, usedPct: size && used !== null ? Math.round((used / size) * 100) : null, cache: x.cache ? String(x.cache) : null };
+  }).sort((x, y) => (y.usedKB ?? 0) - (x.usedKB ?? 0)).slice(0, 30);
   const running = (c: any) => String(c.state ?? "").toUpperCase() === "RUNNING";
   const data = {
     host: info ? { name: info.os?.hostname ?? null, uptimeSec: info.os?.uptime ? Math.max(0, Math.round((Date.now() - new Date(info.os.uptime).getTime()) / 1000)) || null : null, cpu: info.cpu?.brand ?? null, cores: num(info.cpu?.cores), threads: num(info.cpu?.threads) } : null,
@@ -72,10 +93,14 @@ function shape(sections: Partial<Record<Section, any>>) {
       state: String(a.state ?? ""), totalKB: total, usedKB: used, freeKB: free, usedPct: total && used !== null ? Math.round((used / total) * 100) : null,
       disks, hottest: disks.reduce((mx: number, d: any) => (d.tempC !== null && d.tempC > mx ? d.tempC : mx), 0) || null,
       diskProblems: disks.filter((d: any) => d.errors > 0 || /DSBL|INVALID|MISSING|NP_DSBL|DISABLED/i.test(d.status)).length,
-      check: check ? { running: Boolean(check.running), paused: Boolean(check.paused), progress: num(check.progress), errors: num(check.errors) ?? 0, status: String(check.status ?? "") } : null
+      check: check ? { running: Boolean(check.running), paused: Boolean(check.paused), progress: num(check.progress), errors: num(check.errors) ?? 0, status: String(check.status ?? "") } : null,
+      lastCheck: lastCheck ? { date: lastCheck.date ? String(lastCheck.date) : null, durationSec: num(lastCheck.duration), speed: lastCheck.speed ? String(lastCheck.speed) : null, status: String(lastCheck.status ?? ""), errors: num(lastCheck.errors) ?? 0 } : null
     } : null,
-    docker: sections.docker ? { total: containers.length, running: containers.filter(running).length, updates: containers.filter(c => c.isUpdateAvailable === true).length, stopped: containers.filter(c => !running(c)).slice(0, 8).map(c => String((c.names?.[0] ?? c.id ?? "").toString().replace(/^\//, ""))) } : null,
-    vms: sections.vms ? { total: domains.length, running: domains.filter(d => String(d.state ?? "").toUpperCase() === "RUNNING").length } : null,
+    shares: sections.shares ? shares : null,
+    docker: sections.docker ? { total: containers.length, running: containers.filter(running).length, updates: containers.filter(c => c.isUpdateAvailable === true).length,
+      list: containers.slice(0, 80).map(c => ({ id: String(c.id ?? ""), name: String((c.names?.[0] ?? c.id ?? "").toString().replace(/^\//, "")), image: c.image ? String(c.image).slice(0, 80) : null, running: running(c), state: String(c.state ?? "").toLowerCase(), status: c.status ? String(c.status).slice(0, 60) : null, update: c.isUpdateAvailable === true })).sort((x, y) => Number(y.running) - Number(x.running) || x.name.localeCompare(y.name)),
+      stopped: containers.filter(c => !running(c)).slice(0, 8).map(c => String((c.names?.[0] ?? c.id ?? "").toString().replace(/^\//, ""))) } : null,
+    vms: sections.vms ? { total: domains.length, running: domains.filter(d => String(d.state ?? "").toUpperCase() === "RUNNING").length, list: domains.slice(0, 40).map(d => ({ id: String(d.id ?? ""), name: String(d.name ?? "VM"), state: String(d.state ?? "").toLowerCase(), running: String(d.state ?? "").toUpperCase() === "RUNNING" })) } : null,
     notifications: unread ? { info: num(unread.info) ?? 0, warning: num(unread.warning) ?? 0, alert: num(unread.alert) ?? 0 } : null
   };
   return data;
@@ -106,5 +131,18 @@ export const unraid: IntegrationType = {
   description: "Array state and capacity, disk temperatures, CPU and memory, Docker containers, VMs, notifications",
   urlHint: "http://192.168.1.10  (https:// if your server uses SSL)",
   keyLabel: "API key (Unraid → Settings → Management Access → API Keys)",
-  test, poll
+  test, poll,
+  actions: {
+    containerstart: async (ctx, args) => mutate(ctx, `mutation { docker { start(id: ${JSON.stringify(targetId(args))}) { id state } } }`),
+    containerstop: async (ctx, args) => mutate(ctx, `mutation { docker { stop(id: ${JSON.stringify(targetId(args))}) { id state } } }`),
+    containerrestart: async (ctx, args) => {
+      const id = JSON.stringify(targetId(args));
+      await mutate(ctx, `mutation { docker { stop(id: ${id}) { id state } } }`);
+      await sleep(1500);
+      return mutate(ctx, `mutation { docker { start(id: ${id}) { id state } } }`);
+    },
+    vmstart: async (ctx, args) => mutate(ctx, `mutation { vm { start(id: ${JSON.stringify(targetId(args))}) } }`),
+    vmstop: async (ctx, args) => mutate(ctx, `mutation { vm { stop(id: ${JSON.stringify(targetId(args))}) } }`),
+    vmreboot: async (ctx, args) => mutate(ctx, `mutation { vm { reboot(id: ${JSON.stringify(targetId(args))}) } }`)
+  }
 };

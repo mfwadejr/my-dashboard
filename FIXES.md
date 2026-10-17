@@ -10,6 +10,7 @@ Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 - Verify against real hardware: Protect, Prowlarr, Site Gateway, Unraid, ZimaOS.
 
 ## Done
+- Unraid: pick-and-order sections, CPU/RAM gauges and history, container and VM lists with start/stop/restart (signed in, asks first), parity check progress and last result, share usage.
 - Site Gateway: pick-and-order sections, full attention list (critical first), traffic graph, upstreams and streams, certificate expiry, version and public address.
 - Prowlarr: pick-and-order sections, failure stats (success %, failed searches/grabs), full indexer list (state, protocol, priority, failure rate), recent searches and grabs, and a Test all indexers button.
 - Sonarr/Radarr: pick-and-order sections (summary, queue, upcoming, recently grabbed, library, disk), stuck-download warnings with reasons, quality and client per item.

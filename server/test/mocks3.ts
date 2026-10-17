@@ -3,13 +3,16 @@ import { KEY, start, type Mock } from "./mocks.js";
 const BOOT = new Date(Date.now() - 3 * 86400_000).toISOString();
 
 /** Unraid GraphQL. `legacy` mimics an older release that lacks several fields, to prove the fallbacks work. */
-export function mockUnraid(opts: { legacy?: boolean } = {}): Promise<Mock & { queries: string[] }> {
+export function mockUnraid(opts: { legacy?: boolean; vms?: boolean } = {}): Promise<Mock & { queries: string[] }> {
   const queries: string[] = [];
   return start((req, url, _hits, body) => {
     if (url.pathname !== "/graphql" || req.method !== "POST") return { status: 404 };
     if (req.headers["x-api-key"] !== KEY) return { status: 401, body: { errors: [{ message: "Unauthorized" }] } };
     const q: string = String(body?.query ?? "");
     queries.push(q);
+    if (q.startsWith("mutation")) return q.includes("denied") ? { body: { errors: [{ message: "Forbidden resource" }] } } : { body: { data: { ok: true } } };
+    if (q.includes("shares")) return { body: { data: { shares: [{ name: "media", free: "1000", used: "3000", size: "4000", cache: "yes" }, { name: "appdata", free: "900", used: "100", size: "1000", cache: "only" }] } } };
+    if (q.includes("parityHistory")) return { body: { data: { parityHistory: [{ date: "2026-09-01T00:00:00Z", duration: 40000, speed: "90 MB/s", status: "OK", errors: 0 }, { date: "2026-10-01T00:00:00Z", duration: 41000, speed: "88 MB/s", status: "OK", errors: 2 }] } } };
     if (q.includes("metrics")) return { body: { data: { metrics: { cpu: { percentTotal: 23.5 }, memory: { total: 34359738368, used: 12884901888, percentTotal: 37.5 } } } } };
     if (q.includes("array")) {
       if (opts.legacy && (q.includes("parityCheckStatus") || q.includes("kilobytes"))) return { body: { errors: [{ message: 'Cannot query field "parityCheckStatus" on type "UnraidArray".' }] } };
@@ -22,9 +25,10 @@ export function mockUnraid(opts: { legacy?: boolean } = {}): Promise<Mock & { qu
         parityCheckStatus: { status: "RUNNING", progress: 42, running: true, paused: false, errors: 0 } } } } };
     }
     if (q.includes("docker")) return { body: { data: { docker: { containers: [
-      { id: "a", names: ["/plex"], state: "RUNNING", status: "Up 2 days", autoStart: true, isUpdateAvailable: true },
+      { id: "a", names: ["/plex"], image: "plexinc/pms-docker", state: "RUNNING", status: "Up 2 days", autoStart: true, isUpdateAvailable: true },
       { id: "b", names: ["/sonarr"], state: "RUNNING", status: "Up", autoStart: true, isUpdateAvailable: false },
       { id: "c", names: ["/old-thing"], state: "EXITED", status: "Exited", autoStart: false, isUpdateAvailable: false }] } } } };
+    if (q.includes("vms") && opts.vms) return { body: { data: { vms: { domains: [{ id: "v1", name: "Windows", state: "RUNNING" }, { id: "v2", name: "Test", state: "SHUTOFF" }] } } } };
     if (q.includes("vms")) return { body: { errors: [{ message: "Forbidden resource" }] } };
     if (q.includes("notifications")) return { body: { data: { notifications: { overview: { unread: { info: 2, warning: 1, alert: 0, total: 3 } } } } } };
     if (q.includes("info")) return { body: { data: { info: { os: { hostname: "tower", uptime: BOOT }, cpu: { brand: "Ryzen 5", cores: 6, threads: 12 } } } } };

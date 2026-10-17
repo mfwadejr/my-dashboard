@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export const initials = (name: string) => name.replace(/[^A-Za-z0-9 ]/g, " ").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase() || "?";
 
@@ -57,4 +57,15 @@ export function relDate(iso: string | null): string {
   const days = Math.round((d.getTime() - Date.now()) / 86400_000);
   const day = days <= 0 && d.toDateString() === new Date().toDateString() ? "Today" : days === 1 || (days === 0) ? "Tomorrow" : d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
   return day;
+}
+
+/** A small button that asks twice before doing something disruptive. `label` is its icon or text. */
+export function Confirm({ label, name, sure, onGo, disabled }: { label: string; name: string; sure: string; onGo: () => void; disabled?: boolean }) {
+  const [armed, setArmed] = useState(false);
+  return (
+    <button type="button" className="btn sm" disabled={disabled} aria-label={name}
+      onClick={() => { if (armed) { setArmed(false); onGo(); } else { setArmed(true); window.setTimeout(() => setArmed(false), 3000); } }}>
+      {armed ? sure : label}
+    </button>
+  );
 }
