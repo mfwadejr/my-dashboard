@@ -64,17 +64,23 @@ export function mockRadarr(): Promise<Mock> {
 }
 
 /** Behaves like SABnzbd: errors come back as JSON with a 200 status. */
-export function mockSab(): Promise<Mock & { state: { paused: boolean } }> {
-  const state = { paused: false };
+export function mockSab(): Promise<Mock & { state: { paused: boolean; calls: string[] } }> {
+  const state = { paused: false, calls: [] as string[] };
   return start((_req, url) => {
     if (url.pathname !== "/api") return { status: 404 };
     if (url.searchParams.get("apikey") !== KEY) return { body: { status: false, error: "API Key Incorrect" } };
-    switch (url.searchParams.get("mode")) {
-      case "queue": return { body: { queue: { version: "4.3.3", status: state.paused ? "Paused" : "Downloading", paused: state.paused, kbpersec: "10240.5", mb: "5000", mbleft: "1250.25", noofslots: 2, noofslots_total: 2, timeleft: "0:02:00", diskspace1: "512.3", slots: [
+    const mode = url.searchParams.get("mode");
+    if (["retry", "config"].includes(mode ?? "") || url.searchParams.get("name")) state.calls.push(`${mode}:${url.searchParams.get("name") ?? ""}:${url.searchParams.get("value") ?? ""}`);
+    if (mode === "queue" && url.searchParams.get("name")) return { body: { status: true } };
+    if (mode === "history" && url.searchParams.get("name")) return { body: { status: true } };
+    switch (mode) {
+      case "retry": return { body: { status: true } };
+      case "config": return { body: { status: true } };
+      case "queue": return { body: { queue: { version: "4.3.3", status: state.paused ? "Paused" : "Downloading", paused: state.paused, kbpersec: "10240.5", mb: "5000", mbleft: "1250.25", noofslots: 2, noofslots_total: 2, timeleft: "0:02:00", diskspace1: "512.3", diskspacetotal1: "1000.0", speedlimit: "50", have_warnings: "2", slots: [
         { nzo_id: "SABnzbd_nzo_a", filename: "Ubuntu.iso", mb: "4000", percentage: "75", timeleft: "0:01:00", cat: "software", status: "Downloading" },
         { nzo_id: "SABnzbd_nzo_b", filename: "Other.rar", mb: "1000", percentage: "0", timeleft: "0:01:00", cat: "tv", status: "Queued" }
       ] } } };
-      case "history": return { body: { history: { slots: [{ name: "Done.Item", status: "Completed", bytes: 1048576, completed: 1760000000, category: "tv" }] } } };
+      case "history": return { body: { history: { day_size: "1.5 G", week_size: "9 G", month_size: "40 G", total_size: "1 T", slots: [{ nzo_id: "SABnzbd_nzo_h1", name: "Done.Item", status: "Completed", bytes: 1048576, completed: 1760000000, category: "tv" }, { nzo_id: "SABnzbd_nzo_h2", name: "Broken.Item", status: "Failed", bytes: 2048, completed: 1760000100, category: "*", fail_message: "Aborted, cannot be completed" }] } } };
       case "version": return { body: { version: "4.3.3" } };
       case "pause": state.paused = true; return { body: { status: true } };
       case "resume": state.paused = false; return { body: { status: true } };

@@ -11,6 +11,7 @@ Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 
 ## Done
 
+- SABnzbd tile: section picker (summary, speed graph, queue, download disk, speed limit, history); status and warnings pills; pause/resume/remove per job; retry failed history; speed limit control; today/week totals.
 - UniFi UNAS connection and tile (storage used/free gauge) built; unverified on real hardware.
 - ZimaOS tile: live Network graph like ZimaOS's own (2-second samples, grid, smooth filled curves). Sampling runs only while a browser has the tile open.
 - ZimaOS tile: CPU and RAM shown as arc gauges like ZimaOS's own System widget (CPU shows power and temperature, RAM shows used of total); unlabeled memory bar removed.

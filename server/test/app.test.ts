@@ -123,6 +123,10 @@ test("integrations: create, poll and read normalized data for Sonarr, Radarr and
   assert.equal(r.queue.items[0].title, "Dune"); assert.equal(r.queue.items[0].subtitle, "2021"); assert.equal(r.upcoming[0].title, "Soon Movie"); assert.equal(r.libraryCount, 2);
   const z = data[sabId].data;
   assert.equal(z.speedKBs, 10240.5); assert.equal(z.queue.items[0].progress, 0.75); assert.equal(z.queue.sizeLeftMB, 1250.25); assert.equal(z.history[0].name, "Done.Item"); assert.equal(z.paused, false);
+  assert.deepEqual([z.diskFreeGB, z.diskTotalGB, z.speedLimitPct, z.warnings, z.status], [512.3, 1000, 50, 2, "Downloading"]);
+  assert.deepEqual([z.history[1].status, z.history[1].category, z.history[1].failMessage], ["Failed", null, "Aborted, cannot be completed"]);
+  assert.deepEqual(z.totals, { day: "1.5 G", week: "9 G", month: "40 G", all: "1 T" });
+  assert.equal(z.queue.items[1].category, "tv");
   // header vs query-string auth
   assert.ok(sonarr.hits.every(h => !h.includes(KEY)), "Sonarr key must go in a header, not the URL");
 });
@@ -134,6 +138,22 @@ test("integrations: SABnzbd pause/resume action works and refreshes the data", a
   assert.equal((await call("GET", `/api/data`)).json()[sabId].data.paused, true);
   assert.equal((await call("POST", `/api/integrations/${sabId}/actions/resume`)).statusCode, 200);
   assert.equal((await call("POST", `/api/integrations/${sabId}/actions/explode`)).statusCode, 404);
+});
+
+test("integrations: SABnzbd per-job actions, retry, speed limit, and hostile ids are refused", async () => {
+  const act = (name: string, body: unknown) => call("POST", `/api/integrations/${sabId}/actions/${name}`, body);
+  sab.state.calls.length = 0;
+  assert.equal((await act("pausejob", { id: "SABnzbd_nzo_a" })).statusCode, 200);
+  assert.equal((await act("resumejob", { id: "SABnzbd_nzo_a" })).statusCode, 200);
+  assert.equal((await act("deletejob", { id: "SABnzbd_nzo_b" })).statusCode, 200);
+  assert.equal((await act("retry", { id: "SABnzbd_nzo_h2" })).statusCode, 200);
+  assert.equal((await act("removehistory", { id: "SABnzbd_nzo_h2" })).statusCode, 200);
+  assert.equal((await act("speedlimit", { percent: 25 })).statusCode, 200);
+  assert.deepEqual(sab.state.calls, ["queue:pause:SABnzbd_nzo_a", "queue:resume:SABnzbd_nzo_a", "queue:delete:SABnzbd_nzo_b", "retry::SABnzbd_nzo_h2", "history:delete:SABnzbd_nzo_h2", "config:speedlimit:25"]);
+  const before = sab.state.calls.length;
+  for (const bad of [{ id: "a&mode=shutdown" }, { id: "" }, { id: "../x" }, {}]) assert.equal((await act("deletejob", bad)).statusCode, 502, JSON.stringify(bad));
+  for (const bad of [{ percent: 101 }, { percent: -1 }, { percent: "50; rm" }, { percent: 1.5 }, { percent: "" }, {}]) assert.equal((await act("speedlimit", bad)).statusCode, 502, JSON.stringify(bad));
+  assert.equal(sab.state.calls.length, before, "refused requests never reach SABnzbd");
 });
 
 test("integrations: keys are encrypted at rest and never returned to anyone", async () => {

@@ -14,6 +14,14 @@ export const SECTION_DEFS: Record<string, SectionDef[]> = {
     { id: "devices", label: "All devices", hint: "Every UniFi device with state and firmware-update flag", on: false },
     { id: "problems", label: "Offline devices", hint: "Devices that are not online (or an all-clear line)", on: true }
   ],
+  sabnzbd: [
+    { id: "summary", label: "Summary", hint: "Speed, queue size and time left, status and warnings, pause button", on: true },
+    { id: "graph", label: "Speed graph", hint: "Download speed over the last few hours", on: true },
+    { id: "queue", label: "Queue", hint: "Current downloads with progress; pause or remove one job when signed in", on: true },
+    { id: "disk", label: "Download disk", hint: "Free space on the download drive", on: true },
+    { id: "limit", label: "Speed limit", hint: "Current limit, and change it when signed in", on: false },
+    { id: "history", label: "History", hint: "Recent finished and failed jobs, retry a failed one, totals for today and this week", on: true }
+  ],
   zimaos: [
     { id: "summary", label: "CPU, RAM and temperature", hint: "Headline numbers with a memory bar", on: true },
     { id: "network", label: "Network", hint: "Upload and download speed of the main network port, with a short history graph", on: false },
