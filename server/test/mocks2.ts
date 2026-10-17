@@ -14,8 +14,14 @@ export function mockProwlarr(): Promise<Mock> {
       case "/api/v1/indexer": return { body: [
         { id: 1, name: "NZBgeek", enable: true, protocol: "usenet" }, { id: 2, name: "1337x", enable: true, protocol: "torrent" }, { id: 3, name: "Old", enable: false, protocol: "torrent" }] };
       case "/api/v1/indexerstatus": return { body: [{ indexerId: 2, disabledTill: new Date(Date.now() + 3600_000).toISOString() }] };
-      case "/api/v1/indexerstats": return { body: { indexers: [{ indexerId: 1, indexerName: "NZBgeek", averageResponseTime: 420, numberOfQueries: 90, numberOfGrabs: 7, numberOfRssQueries: 10, numberOfAuthQueries: 0, numberOfFailedQueries: 1 }] } };
+      case "/api/v1/indexerstats": return { body: { indexers: [{ indexerId: 1, indexerName: "NZBgeek", averageResponseTime: 420, numberOfQueries: 90, numberOfGrabs: 7, numberOfRssQueries: 10, numberOfAuthQueries: 0, numberOfFailedQueries: 1, numberOfFailedGrabs: 2 }] } };
       case "/api/v1/health": return { body: [{ type: "warning", source: "IndexerStatusCheck", message: "Indexers unavailable due to failures: 1337x" }] };
+      case "/api/v1/history": return { body: { records: [
+        { indexerId: 1, eventType: "indexerQuery", successful: true, date: "2026-10-15T10:00:00Z", data: { query: "Severance S02E01", source: "Sonarr" } },
+        { indexerId: 2, eventType: "indexerQuery", successful: false, date: "2026-10-15T09:00:00Z", data: { query: "Andor", source: "Sonarr" } },
+        { indexerId: 1, eventType: "indexerRss", successful: true, date: "2026-10-15T08:00:00Z", data: {} },
+        { indexerId: 1, eventType: "releaseGrabbed", successful: true, date: "2026-10-15T07:00:00Z", data: { title: "Some.Release.1080p" } }] } };
+      case "/api/v1/indexer/testall": return req.method === "POST" ? { body: [{ id: 1, isValid: true }, { id: 2, isValid: false, validationFailures: [{ errorMessage: "key=secret-should-not-leak" }] }, { id: 3, isValid: true }] } : { status: 405 };
       default: return { status: 404 };
     }
   });

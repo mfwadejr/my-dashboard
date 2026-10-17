@@ -94,9 +94,9 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
     const run = impl?.actions?.[action];
     if (!row || !run) return reply.code(404).send({ error: "Unknown action" });
     try {
-      await run(store.ctxOf(row), (request.body ?? {}) as Record<string, unknown>);
+      const out = await run(store.ctxOf(row), (request.body ?? {}) as Record<string, unknown>) as { message?: unknown } | null | undefined;
       void poller.run(id); // refresh the tile right away
-      return { ok: true };
+      return { ok: true, ...(typeof out?.message === "string" ? { message: out.message } : {}) };
     } catch (error) {
       return reply.code(502).send({ error: error instanceof Error ? error.message : "Action failed" });
     }

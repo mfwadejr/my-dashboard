@@ -38,6 +38,15 @@ export const SECTION_DEFS: Record<string, SectionDef[]> = {
     { id: "limit", label: "Speed limit", hint: "Current limit, and change it when signed in", on: false },
     { id: "history", label: "History", hint: "Recent finished and failed jobs, retry a failed one, totals for today and this week", on: true }
   ],
+  prowlarr: [
+    { id: "summary", label: "Summary", hint: "Enabled, blocked and grab counts, with the first health warning", on: true },
+    { id: "stats", label: "Failure stats", hint: "Success rate, failed searches and failed grabs", on: true },
+    { id: "blocked", label: "Blocked indexers", hint: "Indexers Prowlarr has paused after failures, and until when", on: true },
+    { id: "top", label: "Busiest indexers", hint: "Most-used indexers with queries and response time", on: true },
+    { id: "indexers", label: "All indexers", hint: "Every indexer with state, usenet or torrent, priority and failure rate", on: false },
+    { id: "recent", label: "Recent searches", hint: "Latest searches and grabs with the indexer and whether they worked", on: false },
+    { id: "test", label: "Test button", hint: "Run Prowlarr's test of all indexers (when signed in)", on: false }
+  ],
   zimaos: [
     { id: "summary", label: "CPU, RAM and temperature", hint: "Headline numbers with a memory bar", on: true },
     { id: "network", label: "Network", hint: "Upload and download speed of the main network port, with a short history graph", on: false },

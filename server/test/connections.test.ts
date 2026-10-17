@@ -43,6 +43,13 @@ test("Prowlarr: test, poll, blocked indexers", async () => {
   assert.equal(d.failing[0].name, "1337x");
   assert.equal(d.totals.queries, 100); assert.equal(d.totals.grabs, 7); assert.equal(d.health.issues, 1);
   assert.equal(d.top[0].name, "NZBgeek");
+  assert.equal(d.totals.failedGrabs, 2); assert.equal(d.totals.successPct, 99);
+  assert.deepEqual(d.all.map((r: any) => [r.name, r.state]), [["1337x", "blocked"], ["NZBgeek", "ok"], ["Old", "disabled"]]);
+  assert.equal(d.all[1].failPct, 1);
+  assert.deepEqual(d.recent.map((r: any) => [r.indexer, r.kind, r.ok, r.what]), [["NZBgeek", "search", true, "Severance S02E01"], ["1337x", "search", false, "Andor"], ["NZBgeek", "grab", true, "Some.Release.1080p"]], "RSS and auth noise is left out");
+  const run = await call("POST", `/api/integrations/${id}/actions/testall`, {});
+  assert.equal(run.statusCode, 502); assert.match(run.json().error, /1 of 3 indexers failed/); assert.ok(!run.body.includes("secret-should-not-leak"), "per-indexer error text is not echoed");
+  assert.ok(prowlarr.hits.includes("POST /api/v1/indexer/testall"));
 });
 
 test("Site Gateway: bearer token, attention items, single request per poll", async () => {

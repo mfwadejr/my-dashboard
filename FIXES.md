@@ -10,6 +10,7 @@ Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 - Verify against real hardware: Protect, Prowlarr, Site Gateway, Unraid, ZimaOS.
 
 ## Done
+- Prowlarr: pick-and-order sections, failure stats (success %, failed searches/grabs), full indexer list (state, protocol, priority, failure rate), recent searches and grabs, and a Test all indexers button.
 - Sonarr/Radarr: pick-and-order sections (summary, queue, upcoming, recently grabbed, library, disk), stuck-download warnings with reasons, quality and client per item.
 - Media calendar tile: one month grid across any number of Sonarr and Radarr connections, posters, downloaded state, Radarr cinema/digital/physical dates, day detail and list view.
 
