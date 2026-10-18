@@ -314,3 +314,8 @@ dialog.palette{width:min(640px,94vw);margin:12vh auto auto;padding:0;border:1px 
 .pal-foot{padding:8px 14px;border-top:1px solid var(--line);font-size:12px}
 .tile.flash{animation:flash 1.8s ease-out}@keyframes flash{0%,40%{box-shadow:0 0 0 3px var(--accent)}100%{box-shadow:none}}
 .cam-empty,.wall-empty{padding:14px;display:flex;flex-direction:column;gap:8px;flex:1;min-width:0;background:var(--panel)}
+.subtabs{display:flex;gap:4px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:4px;width:fit-content;max-width:100%}
+.subtabs button{border:0;background:none;color:var(--mute);padding:8px 14px;border-radius:9px;cursor:pointer;font-size:14px}
+.subtabs button:hover{color:var(--text)}.subtabs button.on{background:var(--panel2);color:var(--text);font-weight:600}
+.subtab-hint{margin:8px 2px 14px}
+a.btn{text-decoration:none}.subtab-hint{margin:6px 2px 12px}

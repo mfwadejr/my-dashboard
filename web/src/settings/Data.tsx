@@ -13,8 +13,18 @@ interface Preview { accounts: { included: boolean; count: number | null; youWill
 interface Result { accounts: { added: number; removed: number; signedOut: boolean } | null; mode: string; added: { tabs: number; integrations: number; cameras: number }; skipped: { tabs: number; integrations: number; cameras: number }; needsSecrets: string[] }
 interface Stats { key: { source: "env" | "file"; file: string | null } }
 
+type SubTab = "backups" | "export" | "storage" | "upkeep";
+const SUBTABS: Array<{ id: SubTab; label: string; hint: string }> = [
+  { id: "backups", label: "Backups", hint: "Database copies, copies on your network, Complete backup, check a file" },
+  { id: "export", label: "Export & restore", hint: "Backup file, restoring, encryption key" },
+  { id: "storage", label: "History & log", hint: "How long graph history and the log are kept, and the saved log files" },
+  { id: "upkeep", label: "Upkeep & reset", hint: "Database upkeep, resetting the layout, clearing the log" }
+];
+
 export function Data({ onRestored, integrations }: { onRestored: () => void; integrations: IntegrationInfo[] }) {
   const { settings } = useSettings();
+  const [tab, setTabState] = useState<SubTab>(() => { try { const v = sessionStorage.getItem("hb_data_tab"); return v === "export" || v === "storage" || v === "upkeep" ? v : "backups"; } catch { return "backups"; } });
+  const setTab = (t: SubTab) => { setTabState(t); try { sessionStorage.setItem("hb_data_tab", t); } catch { /* remembering is optional */ } window.scrollTo(0, 0); };
   const ex = useNotice(), im = useNotice(), ky = useNotice(), dz = useNotice();
   const [pass, setPass] = useState("");
   const [withAccounts, setWithAccounts] = useState(false);
@@ -70,6 +80,20 @@ export function Data({ onRestored, integrations }: { onRestored: () => void; int
 
   return (
     <>
+      <div className="subtabs" role="tablist" aria-label="Data and backup sections">
+        {SUBTABS.map(t => <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? "on" : ""} title={t.hint} onClick={() => setTab(t.id)}>{t.label}</button>)}
+      </div>
+      <p className="sub subtab-hint">{SUBTABS.find(t => t.id === tab)?.hint}</p>
+
+      {tab === "backups" && (
+        <>
+      <Copies />
+      <Destinations />
+        </>
+      )}
+
+      {tab === "export" && (
+        <>
       <Section title="Export a backup file" hint="One file with your tabs, tiles, connections, cameras and settings. Use it to move to a new machine or to keep a copy off the server.">
         <Row label="Passphrase (optional)" hint="Without one, passwords and API keys are left out. With one, they are included, encrypted so only the passphrase opens them. Share links are never included.">
           <input type="password" autoComplete="new-password" value={pass} placeholder="At least 8 characters" onChange={e => setPass(e.target.value)} />
@@ -123,11 +147,6 @@ export function Data({ onRestored, integrations }: { onRestored: () => void; int
         {im.el}
       </Section>
 
-      <Copies />
-      <Destinations />
-      <Retention integrations={integrations} />
-      <Maintenance />
-
       <Section title="Encryption key" hint="Passwords and API keys in the database are encrypted with a key kept in a separate file. If you lose that file, saved passwords and keys cannot be read, even from a good database copy. Keep a copy of it somewhere safe, apart from your backups.">
         {stats?.key.source === "env" ? <p className="sub">The key comes from the HOMEBASE_SECRET_KEY setting of the container, so there is no file to download. Keep that value safe.</p> : (
           <>
@@ -139,11 +158,26 @@ export function Data({ onRestored, integrations }: { onRestored: () => void; int
         )}
       </Section>
 
+        </>
+      )}
+
+      {tab === "storage" && (
+        <>
+      <Retention integrations={integrations} />
+        </>
+      )}
+
+      {tab === "upkeep" && (
+        <>
+      <Maintenance />
+
       <Section title="Danger zone" danger hint="A safety copy is saved first where it applies, but be sure.">
         <Row label="Reset the layout" hint="Replaces every tab and tile with the starter layout. Connections and cameras stay."><Confirm label="Reset layout…" name="Reset layout" sure="Click again to reset" onGo={async () => { try { await api.post("/api/data/reset-layout"); dz.ok("The layout was reset."); onRestored(); } catch (e) { dz.bad(e); } }} /></Row>
         <Row label="Clear the log" hint="Removes every line from the log."><Confirm label="Clear log…" name="Clear log" sure="Click again to clear" onGo={async () => { try { await api.post("/api/data/clear-logs"); dz.ok("The log was cleared."); } catch (e) { dz.bad(e); } }} /></Row>
         {dz.el}
       </Section>
+        </>
+      )}
     </>
   );
 }
