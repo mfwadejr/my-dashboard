@@ -1,12 +1,12 @@
-import type { FastifyInstance, preHandlerAsyncHookHandler } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { ConflictError, ValidationError, readDashboard, validateDashboard, writeDashboard } from "../dashboard.js";
-import type { DB } from "../db.js";
-import type { Store } from "../store.js";
-import type { Go2rtc } from "../go2rtc.js";
+import type { Deps } from "../deps.js";
 
 const ORPHAN_GRACE_MS = 10 * 60_000;
 
-export function dashboardRoutes(app: FastifyInstance, db: DB, store: Store, go2rtc: Go2rtc, requireAuth: preHandlerAsyncHookHandler): void {
+export function dashboardRoutes(app: FastifyInstance, d: Deps): void {
+  const { db, store, go2rtc, shares } = d;
+  const requireAuth = d.access.requireAdmin;
   app.get("/api/dashboard", async () => readDashboard(db));
 
   app.put("/api/dashboard", { preHandler: requireAuth }, async (request, reply) => {
@@ -24,6 +24,7 @@ export function dashboardRoutes(app: FastifyInstance, db: DB, store: Store, go2r
         const cam = store.getCamera(id);
         if (!used.has(id) && cam && Date.now() - cam.createdAt > ORPHAN_GRACE_MS) {
           store.deleteCamera(id);
+          shares.forgetCamera(id);
           void go2rtc.remove(id);
         }
       }

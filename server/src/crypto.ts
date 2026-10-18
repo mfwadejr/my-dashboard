@@ -10,13 +10,18 @@ import { join } from "node:path";
  */
 export class SecretBox {
   private key: Buffer;
+  readonly source: "env" | "file";
+  readonly keyFile: string;
 
   constructor(dataDir: string, env: NodeJS.ProcessEnv = process.env) {
+    const file = join(dataDir, "secret.key");
+    this.keyFile = file;
     if (env.HOMEBASE_SECRET_KEY) {
+      this.source = "env";
       this.key = createHash("sha256").update(env.HOMEBASE_SECRET_KEY).digest();
       return;
     }
-    const file = join(dataDir, "secret.key");
+    this.source = "file";
     if (existsSync(file)) {
       this.key = Buffer.from(readFileSync(file, "utf8").trim(), "hex");
     } else {
@@ -26,6 +31,9 @@ export class SecretBox {
     }
     if (this.key.length !== 32) throw new Error("secret.key must contain 64 hex characters");
   }
+
+  /** The key file's contents, or null when the key comes from the environment. */
+  exportKey(): string | null { return this.source === "file" ? this.key.toString("hex") : null; }
 
   seal(plain: string): string {
     if (!plain) return "";

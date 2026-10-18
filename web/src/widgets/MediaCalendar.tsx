@@ -4,6 +4,7 @@ import { usePref } from "../hooks";
 import type { WidgetProps } from "./types";
 import { Empty, Pill, Title, useTick } from "./common";
 import { NeedsConnection } from "./Arr";
+import { dayKeyIn, hour12Of, useSettings } from "../settings";
 
 interface Entry {
   key: string; source: "sonarr" | "radarr"; integrationId: string; title: string; subtitle: string; date: string; allDay: boolean;
@@ -13,24 +14,25 @@ interface Result { entries: Entry[]; errors: Array<{ integrationId: string; name
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const dayKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-/** Radarr dates are whole days (no time), so they must not shift with the viewer's time zone. Sonarr air times are real moments. */
-const entryDay = (e: Entry) => (e.allDay ? e.date.slice(0, 10) : dayKey(new Date(e.date)));
+/** Radarr dates are whole days (no time), so they must not shift with the time zone. Sonarr air times are real moments, shown in the dashboard's zone. */
+const entryDay = (e: Entry, tz: string) => (e.allDay ? e.date.slice(0, 10) : dayKeyIn(new Date(e.date), tz));
 const TONE: Record<Entry["state"], "ok" | "warn" | "bad" | "mute"> = { downloaded: "ok", downloading: "warn", missing: "bad", upcoming: "mute", released: "mute" };
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function timeOf(e: Entry): string {
+function timeOf(e: Entry, tz: string, hour12: boolean | undefined): string {
   if (e.allDay) return e.releaseType ?? "";
-  return new Date(e.date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return new Date(e.date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12, timeZone: tz });
 }
 
 function EntryRow({ e }: { e: Entry }) {
+  const { settings } = useSettings();
   return (
     <div className="mc-entry" title={e.overview ?? undefined}>
       {e.poster ? <img className="mc-poster" src={e.poster} alt="" loading="lazy" /> : <div className="mc-poster none">{e.source === "sonarr" ? "TV" : "🎬"}</div>}
       <div className="mc-info">
         <div className="trunc"><b>{e.title}</b></div>
-        <div className="sub trunc">{[e.subtitle, timeOf(e)].filter(Boolean).join(" · ")}</div>
+        <div className="sub trunc">{[e.subtitle, timeOf(e, settings.timezone, hour12Of(settings))].filter(Boolean).join(" · ")}</div>
       </div>
       <Pill tone={TONE[e.state]}>{e.state}</Pill>
     </div>
@@ -41,10 +43,14 @@ export function MediaCalendar(props: WidgetProps) {
   const cfg = props.tile.config;
   const ids = useMemo(() => ((cfg.integrationIds ?? []) as string[]).filter(id => props.integrations.some(i => i.id === id)), [cfg.integrationIds, props.integrations]);
   const release = String(cfg.release ?? "digital");
-  const weekStart = cfg.weekStart === "mon" ? 1 : 0;
+  const { settings } = useSettings();
+  const tz = settings.timezone;
+  const weekStart = (cfg.weekStart ?? settings.weekStart) === "mon" ? 1 : 0;
   const [view, setView] = usePref<"month" | "list">("hb_cal_view", "month");
-  const [cursor, setCursor] = useState(() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
-  const [picked, setPicked] = useState<string>(() => dayKey(new Date()));
+  const todayKey = () => dayKeyIn(new Date(), tz);
+  const monthOf = (key: string) => new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, 1);
+  const [cursor, setCursor] = useState(() => monthOf(todayKey()));
+  const [picked, setPicked] = useState<string>(() => todayKey());
   const [data, setData] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,15 +77,15 @@ export function MediaCalendar(props: WidgetProps) {
   if (!ids.length) return <NeedsConnection label="Media calendar" editing={props.editing} openSettings={props.openSettings} missing={Boolean((cfg.integrationIds as string[] | undefined)?.length)} />;
 
   const byDay = new Map<string, Entry[]>();
-  for (const e of data?.entries ?? []) { const k = entryDay(e); (byDay.get(k) ?? byDay.set(k, []).get(k)!).push(e); }
-  const today = dayKey(new Date());
+  for (const e of data?.entries ?? []) { const k = entryDay(e, tz); (byDay.get(k) ?? byDay.set(k, []).get(k)!).push(e); }
+  const today = todayKey();
   const small = props.tile.h < 4;
   const names = DAYS.map((_, i) => DAYS[(i + weekStart) % 7]);
   const monthKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
   const shown = monthKey(cursor);
   const listDays = [...byDay.keys()].filter(k => k.startsWith(shown)).sort();
   const move = (d: number) => { const n = new Date(cursor.getFullYear(), cursor.getMonth() + d, 1); setCursor(n); };
-  const goToday = () => { const n = new Date(); setCursor(new Date(n.getFullYear(), n.getMonth(), 1)); setPicked(dayKey(n)); };
+  const goToday = () => { const k = todayKey(); setCursor(monthOf(k)); setPicked(k); };
   const dayList = byDay.get(picked) ?? [];
   const pickedDate = new Date(`${picked}T12:00:00`);
 

@@ -5,7 +5,19 @@ import fastifyStatic from "@fastify/static";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { claimAdmin, isSetUp, makeRequireAuth } from "./auth.js";
+import { Access } from "./access.js";
+import { claimFirstAdmin, isSetUp } from "./auth.js";
+import { AutoBackup } from "./backup.js";
+import { installMainGate } from "./gate.js";
+import { buildPublicApp } from "./public.js";
+import { Shares } from "./shares.js";
+import { logEvent } from "./db.js";
+import type { Deps } from "./deps.js";
+import { versionInfo } from "./version.js";
+import { adminRoutes } from "./routes/admin.js";
+import { settingsRoutes } from "./routes/settings.js";
+import { shareAdminRoutes, shareOpenRoutes } from "./routes/shares.js";
+import { userRoutes } from "./routes/users.js";
 import { loadConfig, type Config } from "./config.js";
 import { SecretBox } from "./crypto.js";
 import { openDb } from "./db.js";
@@ -31,10 +43,15 @@ export async function buildApp(config: Config) {
   const live = new LiveSampler(store);
   const go2rtc = new Go2rtc(config.go2rtcUrl, store, db);
   const icons = new Icons(config.dataDir);
-  const requireAuth = makeRequireAuth(db);
+  const shares = new Shares(db, box);
+  const access = new Access(db, shares);
+  const version = versionInfo();
+  const deps: Deps = { config, db, box, store, hub, poller, go2rtc, shares, access, backups: undefined as unknown as AutoBackup };
+  deps.backups = new AutoBackup(() => deps, config.dataDir);
+  const requireAuth = access.requireAdmin;
 
   seedIfEmpty(db);
-  if (process.env.ADMIN_PASSWORD && !isSetUp(db)) await claimAdmin(db, process.env.ADMIN_PASSWORD);
+  if (process.env.ADMIN_PASSWORD && !isSetUp(db)) await claimFirstAdmin(db, process.env.ADMIN_USERNAME || "admin", process.env.ADMIN_PASSWORD);
 
   const app = Fastify({ logger: process.env.NODE_ENV === "test" ? false : { level: "info" }, trustProxy: config.trustProxy, bodyLimit: 1_000_000 });
   await app.register(cookie);
@@ -52,12 +69,24 @@ export async function buildApp(config: Config) {
     reply.header("Referrer-Policy", "same-origin");
   });
 
-  app.get("/api/health", async () => ({ ok: true, version: process.env.APP_VERSION ?? "dev" }));
-  authRoutes(app, db);
-  dashboardRoutes(app, db, store, go2rtc, requireAuth);
-  integrationRoutes(app, db, store, poller, hub, requireAuth, live);
+  installMainGate(app, deps);
+  app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
+    const status = error.statusCode && error.statusCode < 500 ? error.statusCode : 500;
+    if (status >= 500) { logEvent(db, "error", "system", `Server error on ${request.method} ${request.url.split("?")[0]}: ${error.message}`); app.log.error(error); }
+    return reply.code(status).send({ error: status >= 500 ? "Something went wrong on the server" : error.message });
+  });
+
+  app.get("/api/health", async () => ({ ok: true, version: version.version }));
+  authRoutes(app, deps);
+  userRoutes(app, deps);
+  settingsRoutes(app, deps);
+  shareOpenRoutes(app, deps, false);
+  shareAdminRoutes(app, deps);
+  adminRoutes(app, deps);
+  dashboardRoutes(app, deps);
+  integrationRoutes(app, db, store, poller, hub, requireAuth, live, access, version.build);
   iconRoutes(app, icons, requireAuth);
-  await cameraRoutes(app, store, go2rtc, config.go2rtcUrl, requireAuth);
+  await cameraRoutes(app, deps);
 
   if (existsSync(join(config.webDir, "index.html"))) {
     await app.register(fastifyStatic, { root: config.webDir, wildcard: false });
@@ -67,15 +96,20 @@ export async function buildApp(config: Config) {
     });
   }
 
-  if (config.startPollers) { poller.start(); go2rtc.start(); }
-  app.addHook("onClose", async () => { poller.stop(); live.stop(); go2rtc.stop(); hub.close(); db.close(); });
-  return { app, db, store, poller, go2rtc };
+  const publicApp = config.publicPort && config.publicPort > 0 ? await buildPublicApp(deps) : null;
+  if (config.startPollers) {
+    poller.start(); go2rtc.start(); deps.backups.start();
+    logEvent(db, "info", "system", `Homebase ${version.version} (${version.commit}) started`);
+  }
+  app.addHook("onClose", async () => { if (publicApp) await publicApp.close(); poller.stop(); live.stop(); go2rtc.stop(); deps.backups.stop(); hub.close(); db.close(); });
+  return { app, publicApp, db, store, poller, go2rtc, deps };
 }
 
 const entry = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
 if (import.meta.url === entry) {
   const config = loadConfig();
-  const { app } = await buildApp(config);
+  const { app, publicApp } = await buildApp(config);
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => void app.close().then(() => process.exit(0)));
   await app.listen({ port: config.port, host: config.host });
+  if (publicApp) await publicApp.listen({ port: config.publicPort!, host: config.host });
 }

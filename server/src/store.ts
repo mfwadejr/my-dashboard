@@ -43,6 +43,17 @@ export class Store {
     this.db.prepare("DELETE FROM metrics WHERE instance_id = ?").run(id);
   }
 
+  /** Used by backup restore: keeps the original id so tiles that point at it keep working. */
+  importIntegration(i: { id: string; type: string; name: string; url: string; apiKey: string; intervalSeconds: number; enabled: boolean; insecureTls: boolean }): void {
+    this.db.prepare("INSERT INTO integrations (id, type, name, url, secret, interval_s, enabled, created_at, insecure_tls) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(i.id, i.type, i.name, i.url, this.box.seal(i.apiKey), i.intervalSeconds, i.enabled ? 1 : 0, Date.now(), i.insecureTls ? 1 : 0);
+  }
+
+  importCamera(c: { id: string; name: string; main: string; sub: string }): void {
+    this.db.prepare("INSERT INTO cameras (id, name, main_url, sub_url, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(c.id, c.name, this.box.seal(c.main), this.box.seal(c.sub), Date.now());
+  }
+
   // ---- cameras: RTSP URLs usually contain a password, so they are sealed and never sent to viewers.
 
   listCameras(): Array<{ id: string; name: string }> {

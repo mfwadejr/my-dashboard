@@ -12,6 +12,7 @@ const H = { "x-homebase": "1" };
 let ctx: Awaited<ReturnType<typeof buildApp>>;
 let dir: string;
 let cookie = "";
+let viewerCookie = "";
 let sonarr: Awaited<ReturnType<typeof mockSonarr>>, radarr: Awaited<ReturnType<typeof mockRadarr>>, sab: Awaited<ReturnType<typeof mockSab>>, g2: Awaited<ReturnType<typeof mockGo2rtc>>;
 
 before(async () => {
@@ -26,10 +27,9 @@ const call = (method: string, url: string, payload?: unknown, headers: Record<st
 
 test("first run seeds a dashboard and nothing is editable until setup", async () => {
   const status = (await call("GET", "/api/auth/status")).json();
-  assert.deepEqual(status, { setup: false, authed: false });
-  const dash = (await call("GET", "/api/dashboard")).json();
-  assert.equal(dash.tabs[0].name, "Home");
-  assert.equal((await call("PUT", "/api/dashboard", { tabs: dash.tabs, baseRevision: dash.revision })).statusCode, 401);
+  assert.deepEqual(status, { setup: false, authed: false, user: null, kiosk: false });
+  assert.equal((await call("GET", "/api/dashboard")).statusCode, 401, "no anonymous viewing");
+  assert.equal((await call("PUT", "/api/dashboard", { tabs: [], baseRevision: 0 })).statusCode, 401);
 });
 
 test("change requests without the custom header are rejected (CSRF guard)", async () => {
@@ -46,12 +46,31 @@ test("setup rejects short passwords, then sets one and signs in; a second setup 
   assert.match(set, /SameSite=Strict/i);
   cookie = set.split(";")[0];
   assert.equal((await call("POST", "/api/auth/setup", { password: "another password" })).statusCode, 409);
-  assert.deepEqual((await call("GET", "/api/auth/status")).json(), { setup: true, authed: true });
+  assert.deepEqual((await call("GET", "/api/auth/status")).json(), { setup: true, authed: true, user: { id: (await call("GET", "/api/users")).json()[0].id, username: "admin", role: "admin" }, kiosk: false });
+  const dash = (await call("GET", "/api/dashboard")).json();
+  assert.equal(dash.tabs[0].name, "Home");
+});
+
+test("a viewer account can look but not change anything or reach admin pages", async () => {
+  const made = await call("POST", "/api/users", { username: "guest", password: "viewer password 1", role: "viewer" });
+  assert.equal(made.statusCode, 200);
+  const login = await ctx.app.inject({ method: "POST", url: "/api/auth/login", payload: { username: "guest", password: "viewer password 1" }, headers: H });
+  assert.equal(login.statusCode, 200);
+  viewerCookie = (login.headers["set-cookie"] as string).split(";")[0];
+  const saved = cookie; cookie = viewerCookie;
+  assert.equal((await call("GET", "/api/dashboard")).statusCode, 200);
+  assert.equal((await call("GET", "/api/settings")).statusCode, 200);
+  const dash = (await call("GET", "/api/dashboard")).json();
+  assert.equal((await call("PUT", "/api/dashboard", { tabs: dash.tabs, baseRevision: dash.revision })).statusCode, 403);
+  for (const url of ["/api/users", "/api/shares", "/api/status", "/api/logs", "/api/data/stats", "/api/backup/snapshots", "/api/sessions"]) assert.equal((await call("GET", url)).statusCode, 403, url);
+  assert.equal((await call("PUT", "/api/settings", { name: "x" })).statusCode, 403);
+  assert.equal((await call("POST", "/api/backup/export", {})).statusCode, 403);
+  cookie = saved;
 });
 
 test("login: wrong password fails, right password works, logout ends the session", async () => {
   const saved = cookie; cookie = "";
-  assert.equal((await call("POST", "/api/auth/login", { password: "nope nope nope" })).statusCode, 401);
+  assert.equal((await call("POST", "/api/auth/login", { username: "admin", password: "nope nope nope" })).statusCode, 401);
   const ok = await call("POST", "/api/auth/login", { password: "correct horse battery" });
   assert.equal(ok.statusCode, 200);
   cookie = (ok.headers["set-cookie"] as string).split(";")[0];
@@ -61,9 +80,9 @@ test("login: wrong password fails, right password works, logout ends the session
 });
 
 test("passwords are stored hashed, never in plain text", () => {
-  const db = ctx.db.prepare("SELECT v FROM meta WHERE k='admin_hash'").get() as { v: string };
-  assert.match(db.v, /^scrypt\$/);
-  assert.ok(!db.v.includes("correct horse"));
+  const rows = ctx.db.prepare("SELECT pass_hash AS v FROM users").all() as Array<{ v: string }>;
+  assert.ok(rows.length >= 2);
+  for (const db of rows) { assert.match(db.v, /^scrypt\$/); assert.ok(!db.v.includes("correct horse") && !db.v.includes("viewer password")); }
 });
 
 test("dashboard: save, revision conflict, and validation", async () => {
@@ -101,9 +120,9 @@ test("dashboard: save, revision conflict, and validation", async () => {
 });
 
 test("integrations: viewers cannot manage them, test catches a wrong key and a wrong app", async () => {
-  const anon = cookie; cookie = "";
-  assert.equal((await call("POST", "/api/integrations", { type: "sonarr", url: sonarr.url, apiKey: KEY })).statusCode, 401);
-  assert.equal((await call("POST", "/api/integrations/test", { type: "sonarr", url: sonarr.url, apiKey: KEY })).statusCode, 401);
+  const anon = cookie; cookie = viewerCookie;
+  assert.equal((await call("POST", "/api/integrations", { type: "sonarr", url: sonarr.url, apiKey: KEY })).statusCode, 403);
+  assert.equal((await call("POST", "/api/integrations/test", { type: "sonarr", url: sonarr.url, apiKey: KEY })).statusCode, 403);
   cookie = anon;
 
   const good = (await call("POST", "/api/integrations/test", { type: "sonarr", url: sonarr.url, apiKey: KEY })).json();
@@ -208,7 +227,7 @@ test("integrations: keys are encrypted at rest and never returned to anyone", as
   assert.ok(!readFileSync(join(dir, "homebase.db")).includes(Buffer.from(KEY)), "plain key must not be in the database file");
   const admin = (await call("GET", "/api/integrations")).json();
   assert.equal(admin[0].hasKey, true); assert.ok(!JSON.stringify(admin).includes(KEY));
-  const anon = cookie; cookie = "";
+  const anon = cookie; cookie = viewerCookie;
   const viewer = (await call("GET", "/api/integrations")).json();
   assert.ok(!("url" in viewer[0]) && !("hasKey" in viewer[0]), "viewers get names only");
   assert.ok(!JSON.stringify((await call("GET", "/api/data")).json()).includes(KEY));
@@ -221,7 +240,7 @@ test("integrations: a failing app keeps its last good data, is marked stale, and
   assert.equal(snap?.ok, false); assert.match(snap!.error!, /Could not reach/);
   assert.equal((snap!.data as any).queue.items[0].title, "Dune", "last good data kept");
   const events = (await call("GET", "/api/events")).json();
-  assert.ok(events.some((e: any) => e.source === "Movies" && /Unreachable/.test(e.message)));
+  assert.ok(events.some((e: any) => e.source === "connection" && /Movies.*unreachable/.test(e.message)), "the log has a readable sentence");
   await call("PUT", `/api/integrations/${radarrId}`, { name: "Movies", url: radarr.url });
   assert.equal((await ctx.poller.run(radarrId))?.ok, true, "key was kept when only the address changed");
 });
@@ -268,8 +287,8 @@ test("cameras: the Test button gives a picture or a plain-language reason, and l
   const viaMask = (await test({ cameraId: saved, main: masked.main })).json();
   assert.match(viaMask.results[0].message, /No answer/); assert.ok(!JSON.stringify(viaMask).includes("s3cret"));
   await call("DELETE", `/api/cameras/${saved}`);
-  const anon = cookie; cookie = "";
-  assert.equal((await test({ main: "rtsp://a/b" })).statusCode, 401, "viewers cannot probe your network");
+  const anon = cookie; cookie = viewerCookie;
+  assert.equal((await test({ main: "rtsp://a/b" })).statusCode, 403, "viewers cannot probe your network");
   cookie = anon;
 });
 
@@ -305,10 +324,10 @@ test("cameras: only safe sources, passwords hidden, synced to go2rtc, orphan cle
   assert.equal(g2.streams.get(`cam-${id}`), "rtsp://admin:s3cret@192.168.1.20:554/stream1");
   assert.equal(g2.streams.get(`cam-${id}-sub`), "rtsp://admin:s3cret@192.168.1.20:554/stream2");
 
-  const anon = cookie; cookie = "";
+  const anon = cookie; cookie = viewerCookie;
   const publicList = (await call("GET", "/api/cameras")).json();
   assert.deepEqual(publicList, [{ id, name: "Front Door" }]);
-  assert.equal((await call("GET", `/api/cameras/${id}`)).statusCode, 401);
+  assert.equal((await call("GET", `/api/cameras/${id}`)).statusCode, 403);
   cookie = anon;
   const masked = (await call("GET", `/api/cameras/${id}`)).json();
   assert.equal(masked.main, "rtsp://admin:••••@192.168.1.20:554/stream1");
@@ -347,15 +366,19 @@ test("go2rtc reconcile re-adds streams the relay lost and ignores hand-made ones
 
 test("go2rtc proxy exposes playback only, and only for Homebase stream names", async () => {
   const id = (await call("GET", "/api/cameras")).json()[0].id;
-  const anon = cookie; cookie = "";
+  const anon = cookie; cookie = viewerCookie;
   const player = await call("GET", `/go2rtc/stream.html?src=cam-${id}`);
   assert.equal(player.statusCode, 200); assert.match(player.body, /player/);
   assert.equal((await call("GET", `/go2rtc/api/frame.jpeg?src=cam-${id}-sub`)).statusCode, 200);
   for (const blocked of ["/go2rtc/api/config", "/go2rtc/api/streams", "/go2rtc/api/streams?src=cam-x", "/go2rtc/stream.html?src=exec:id", "/go2rtc/api/frame.jpeg?src=rtsp://evil", "/go2rtc/stream.html", "/go2rtc/%2e%2e/api/config"]) {
     assert.equal((await call("GET", blocked)).statusCode, 404, blocked);
   }
+  assert.ok([403, 404].includes((await call("PUT", "/go2rtc/api/streams?name=x&src=exec:id")).statusCode));
+  assert.ok([403, 404].includes((await call("DELETE", "/go2rtc/api/streams?src=cam-x")).statusCode));
+  cookie = anon;
   assert.equal((await call("PUT", "/go2rtc/api/streams?name=x&src=exec:id")).statusCode, 404);
   assert.equal((await call("DELETE", "/go2rtc/api/streams?src=cam-x")).statusCode, 404);
+  cookie = viewerCookie;
   assert.ok(!g2.hits.some(h => h.includes("exec:")), "blocked requests never reach go2rtc");
   cookie = anon;
 });
@@ -382,8 +405,8 @@ test("icons: uploads are validated by content, served sandboxed, and require sig
   assert.match(String(served.headers["content-security-policy"]), /sandbox/);
   assert.equal(served.headers["x-content-type-options"], "nosniff");
   assert.equal((await ctx.app.inject({ method: "GET", url: "/icons/..%2f..%2fsecret.key" })).statusCode, 404);
-  const anon = cookie; cookie = "";
-  assert.equal((await upload("a.png", png, "image/png")).statusCode, 401);
+  const anon = cookie; cookie = viewerCookie;
+  assert.equal((await upload("a.png", png, "image/png")).statusCode, 403);
   cookie = anon;
   assert.ok(readdirSync(join(dir, "icons")).length === 2);
 });
@@ -391,7 +414,7 @@ test("icons: uploads are validated by content, served sandboxed, and require sig
 test("server-sent events deliver current snapshots to a new viewer", async () => {
   await ctx.app.listen({ port: 0, host: "127.0.0.1" });
   const port = (ctx.app.server.address() as any).port;
-  const res = await fetch(`http://127.0.0.1:${port}/api/stream`);
+  const res = await fetch(`http://127.0.0.1:${port}/api/stream`, { headers: { cookie } });
   assert.equal(res.headers.get("content-type"), "text/event-stream");
   const reader = res.body!.getReader();
   let text = "";

@@ -5,8 +5,8 @@ A self-hosted dashboard with tabs, groups, resizable tiles, live app stats and c
 ## Install on ZimaOS
 
 1. Open the ZimaOS App Store, click **+** (Custom Install) and import `deploy/compose.zimaos.yaml`.
-2. Open `http://<your-zima-ip>:3000`. Anyone on your network can view the dashboard.
-3. Click **Set up**, choose an admin password, then **Edit**. The password is only needed to change things.
+2. Open `http://<your-zima-ip>:3000`. The first visit asks you to create the admin account (nobody sees anything without signing in).
+3. Click **Edit** to change the layout. The ⚙ gear opens Settings: backups, people, sharing, status and the log.
 4. **Connections** → pick an app (Sonarr, Radarr, Prowlarr, SABnzbd, Site Gateway, Unraid, ZimaOS, UniFi Network/Protect/PDU/UNAS) → enter the address and API key → **Test connection** → Save.
 5. **Add tile** in a group, choose the connection, and drag/resize tiles. Layout is saved automatically.
 
@@ -35,9 +35,29 @@ Add a camera tile, then **Add a camera** with its RTSP address (main stream, opt
 
 ## Security notes
 
-- Viewing is open on your LAN; every change needs the admin password (session cookie, 30 days).
-- API keys and camera URLs are encrypted at rest (AES-256-GCM). The key is generated into the data folder, or set `HOMEBASE_SECRET_KEY`. Back up both.
-- go2rtc's own web UI has no login. Do not expose port 1984 or Homebase to the internet without a reverse proxy that adds authentication.
+- Nothing is visible without signing in (or a valid share link). Accounts are **Admin** (everything) or **Viewer** (look, don't change). Sessions last 30 days, can be listed and ended under Settings → Access, and the login limit survives restarts.
+- API keys and camera URLs are encrypted at rest (AES-256-GCM). The key is generated into the data folder as `secret.key`, or set `HOMEBASE_SECRET_KEY`. Download it from Settings → Data & backup and keep it apart from your backups.
+- go2rtc's own web UI has no login. Never expose port 1984.
+- Keep port 3000 (the dashboard) off the internet. To share cameras, see **Sharing from outside** below.
+
+## Settings
+
+The ⚙ gear (admins) opens:
+
+- **General**: dashboard name, time zone, 12/24-hour clock, week start, public address, theme and accent (a dashboard default plus a per-device choice), wall display, and how long graph history and the log are kept.
+- **Data & backup**: download a backup file (secrets only with a passphrase), restore with a preview (replace or merge), automatic nightly database copies, the encryption key file, and a danger zone. SQLite stays the live database; the JSON file is only for moving and restoring.
+- **Access**: people, roles, your password, and signed-in devices.
+- **Sharing**: links for one or many cameras (name, expiry, optional PIN, switch off any time) and wall-display links.
+- **Status & log**: each connection's state, speed and 24-hour history; a searchable log written in plain sentences ("Sonarr "Main" is unreachable: timed out after 10s") with filters and CSV export.
+- **About**: version, build, start time. The version is also in the page footer, so you can see an update took effect.
+
+## Sharing from outside
+
+Homebase listens on two ports. **3000** is the dashboard. **3001** (`PUBLIC_PORT`, `0` turns it off) answers only share links and the video for the cameras in them: no dashboard, no sign-in, no settings. Point your reverse proxy (HTTPS) at 3001 only, forward `X-Forwarded-For`, and set `TRUST_PROXY=true`. Then set the public address in Settings → General so copied links point there. Wall-display links never work on 3001; open them on your home network. Add `- "3001:3001"` under `ports` if you want to reach the sharing port directly.
+
+## Wall display
+
+Open the dashboard with `?kiosk=1`, tick **Use wall display mode here** in Settings → General, or create a wall-display link (no password, read-only, home network only). It hides the header and editing, keeps the screen awake, reloads after an update, and can cycle through tabs. In a browser, "Add to home screen" installs it full-screen.
 
 ## Development
 

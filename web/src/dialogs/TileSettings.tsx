@@ -79,7 +79,7 @@ export function TileSettings({ tile, integrations, cameras = [], onAddCameras, o
                 </select>
               </Field>
               <Field label="Week starts on">
-                <select value={String(tile.config.weekStart ?? "sun")} onChange={e => onChange({ weekStart: e.target.value })}><option value="sun">Sunday</option><option value="mon">Monday</option></select>
+                <select value={String(tile.config.weekStart ?? "")} onChange={e => onChange({ weekStart: e.target.value || undefined })}><option value="">Dashboard default</option><option value="sun">Sunday</option><option value="mon">Monday</option></select>
               </Field>
             </>
           );

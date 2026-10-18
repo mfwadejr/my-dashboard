@@ -8,3 +8,11 @@ export interface IntegrationInfo { id: string; type: string; name: string; enabl
 export interface IntegrationType { id: string; name: string; description: string; urlHint: string; keyLabel: string }
 export interface CameraInfo { id: string; name: string }
 export interface IconHit { ref: string; label: string; preview: string }
+
+export interface AuthUser { id: string; username: string; role: "admin" | "viewer" }
+export interface SettingsDoc {
+  name: string; timezone: string; clock: "auto" | "12" | "24"; weekStart: "sun" | "mon"; publicBaseUrl: string;
+  theme: "dark" | "light" | "glass" | "auto"; accent: string; kioskCycleSeconds: number;
+  metricsDays: number; logDays: number; autoBackup: boolean; backupKeep: number;
+}
+export interface AboutInfo { version: string; commit: string; built: string | null; node: string; build: string; startedAt: number; publicPort: number | null; go2rtc: boolean }

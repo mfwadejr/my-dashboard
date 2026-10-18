@@ -1,6 +1,7 @@
 import type { FastifyInstance, preHandlerAsyncHookHandler } from "fastify";
-import { COOKIE, sessionValid } from "../auth.js";
 import type { DB } from "../db.js";
+import type { Access } from "../access.js";
+import { logEvent } from "../db.js";
 import type { Hub } from "../hub.js";
 import { readSeries, type Poller } from "../poller.js";
 import type { Store } from "../store.js";
@@ -21,12 +22,12 @@ function parseInput(body: any, existing?: { type: string }) {
   return { type, name, url, apiKey, intervalSeconds, insecureTls, enabled: body?.enabled === undefined ? true : Boolean(body.enabled) };
 }
 
-export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, poller: Poller, hub: Hub, requireAuth: preHandlerAsyncHookHandler, live: LiveSampler): void {
+export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, poller: Poller, hub: Hub, requireAuth: preHandlerAsyncHookHandler, live: LiveSampler, access: Access, version: string): void {
   app.get("/api/integration-types", async () => publicTypeInfo());
 
   // Viewers see names and status only. Addresses are shown to the signed-in admin.
   app.get("/api/integrations", async request => {
-    const admin = sessionValid(db, request.cookies[COOKIE]);
+    const p = access.principal(request); const admin = p?.kind === "user" && p.user.role === "admin";
     return store.listIntegrations().map(row => ({
       id: row.id, type: row.type, name: row.name, enabled: Boolean(row.enabled),
       ...(admin ? { url: row.url, intervalSeconds: row.interval_s, hasKey: Boolean(row.secret), insecureTls: Boolean(row.insecure_tls) } : {})
@@ -39,6 +40,7 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
       if (!input.apiKey) throw new IntegrationError("An API key is required");
       const id = store.createIntegration(input);
       poller.reload(id);
+      logEvent(db, "info", "connection", `${access.actor(request)} added the connection "${input.name}" (${INTEGRATION_TYPES[input.type].name})`);
       return { id };
     } catch (error) {
       if (error instanceof IntegrationError) return reply.code(400).send({ error: error.message });
@@ -54,6 +56,7 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
       const input = parseInput(request.body, row);
       store.updateIntegration(id, { name: input.name, url: input.url, apiKey: input.apiKey || undefined, intervalSeconds: input.intervalSeconds, enabled: input.enabled, insecureTls: input.insecureTls });
       poller.reload(id);
+      logEvent(db, "info", "connection", `${access.actor(request)} changed the connection "${input.name}"${input.enabled ? "" : " (switched off)"}`);
       return { ok: true };
     } catch (error) {
       if (error instanceof IntegrationError) return reply.code(400).send({ error: error.message });
@@ -63,8 +66,10 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
 
   app.delete("/api/integrations/:id", { preHandler: requireAuth }, async request => {
     const { id } = request.params as { id: string };
+    const gone = store.getIntegration(id);
     store.deleteIntegration(id);
     poller.reload(id);
+    if (gone) logEvent(db, "info", "connection", `${access.actor(request)} deleted the connection "${gone.name}"`);
     return { ok: true };
   });
 
@@ -139,13 +144,8 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
     } catch { return reply.code(502).send({ error: "Could not load the image" }); }
   });
 
-  app.get("/api/events", async request => {
-    const limit = Math.max(1, Math.min(200, Number((request.query as any)?.limit ?? 50) || 50));
-    return db.prepare("SELECT id, ts, level, source, message FROM events ORDER BY id DESC LIMIT ?").all(limit);
-  });
-
   app.get("/api/stream", async (request, reply) => {
     reply.hijack();
-    hub.add(reply.raw, poller.all().map(s => ["snapshot", s] as [string, unknown]));
+    hub.add(reply.raw, [["hello", { build: version }], ...poller.all().map(s => ["snapshot", s] as [string, unknown])]);
   });
 }

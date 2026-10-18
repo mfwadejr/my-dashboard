@@ -8,11 +8,16 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+      # Camera share links only. Point your reverse proxy at this one, never at 3000.
+      - "3001:3001"
     environment:
       # go2rtc runs on the host network (see below), so Homebase reaches it through the host.
       GO2RTC_URL: http://host.docker.internal:1984
       # Optional: pre-set the admin password instead of choosing it in the browser on first visit.
       # ADMIN_PASSWORD: change-me-please
+      # ADMIN_USERNAME: admin
+      # Set to true when a reverse proxy sits in front, so the log and limits see the real visitor address.
+      # TRUST_PROXY: "true"
       # Optional: your own encryption key for stored API keys / camera URLs (otherwise one is generated in /data).
       # HOMEBASE_SECRET_KEY: a-long-random-string
     extra_hosts:

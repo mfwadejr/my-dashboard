@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "./api";
-import type { CameraInfo, Dashboard, IntegrationInfo, Snapshot, Tab } from "./types";
+import type { AuthUser, CameraInfo, Dashboard, IntegrationInfo, Snapshot, Tab } from "./types";
 
-export interface AuthState { loaded: boolean; setup: boolean; authed: boolean }
+export interface AuthState { loaded: boolean; setup: boolean; authed: boolean; user: AuthUser | null; kiosk: boolean }
 
 export function useAuth() {
-  const [state, setState] = useState<AuthState>({ loaded: false, setup: true, authed: false });
+  const [state, setState] = useState<AuthState>({ loaded: false, setup: true, authed: false, user: null, kiosk: false });
   const refresh = useCallback(async () => {
-    try { const s = await api.get<{ setup: boolean; authed: boolean }>("/api/auth/status"); setState({ loaded: true, ...s }); }
+    try { const s = await api.get<{ setup: boolean; authed: boolean; user: AuthUser | null; kiosk: boolean }>("/api/auth/status"); setState({ loaded: true, ...s }); }
     catch { setState(s => ({ ...s, loaded: true })); }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
@@ -71,15 +71,17 @@ export function useDashboard(authed: boolean) {
 export function useLive() {
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({});
   const [connected, setConnected] = useState(false);
+  const [serverBuild, setServerBuild] = useState<string | null>(null);
   useEffect(() => {
     const source = new EventSource("/api/stream");
+    source.addEventListener("hello", e => setServerBuild(String(JSON.parse((e as MessageEvent).data).build ?? "")));
     source.onopen = () => setConnected(true);
     source.onerror = () => setConnected(false);
     source.addEventListener("snapshot", e => { const s = JSON.parse((e as MessageEvent).data) as Snapshot; setSnapshots(prev => ({ ...prev, [s.id]: s })); });
     source.addEventListener("removed", e => { const { id } = JSON.parse((e as MessageEvent).data); setSnapshots(prev => { const next = { ...prev }; delete next[id]; return next; }); });
     return () => source.close();
   }, []);
-  return { snapshots, connected };
+  return { snapshots, connected, serverBuild };
 }
 
 export function useIntegrations(authed: boolean) {

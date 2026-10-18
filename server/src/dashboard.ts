@@ -114,6 +114,13 @@ export function writeDashboard(db: DB, doc: { tabs: TabDoc[] }, baseRevision: nu
   });
 }
 
+/** Remove every tab and put the starter layout back. */
+export function resetDashboard(db: DB): DashboardDoc {
+  writeDashboard(db, { tabs: [] }, Number(getMeta(db, "dashboard_revision") ?? 0));
+  seedIfEmpty(db);
+  return readDashboard(db);
+}
+
 export function seedIfEmpty(db: DB): void {
   const count = db.prepare("SELECT COUNT(*) AS n FROM tabs").get() as { n: number };
   if (count.n > 0) return;
@@ -125,9 +132,9 @@ export function seedIfEmpty(db: DB): void {
         id: "main", name: "", layout: "free", collapsed: false,
         tiles: [
           tile("clock", 3, 1),
-          tile("notes", 3, 2, { text: "Welcome to Homebase.\n\n1. Sign in and click Edit layout.\n2. Open Settings to connect Sonarr, Radarr or SABnzbd.\n3. Add tiles, resize them, and drag them into groups or new tabs." })
+          tile("notes", 3, 2, { text: "Welcome to Homebase.\n\n1. Click Edit to add tiles, resize them and drag them anywhere.\n2. In Edit mode, open Connections to link Sonarr, Radarr, Unraid and more.\n3. The gear opens Settings: backups, people, sharing, status and the log." })
         ]
       }]
     }]
-  }, 0);
+  }, Number(getMeta(db, "dashboard_revision") ?? 0));
 }

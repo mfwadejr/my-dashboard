@@ -2,6 +2,7 @@ import { logEvent, type DB } from "./db.js";
 import type { Hub } from "./hub.js";
 import type { Store, IntegrationRow } from "./store.js";
 import { INTEGRATION_TYPES } from "./integrations/registry.js";
+import { getSettings } from "./settings.js";
 
 export interface Snapshot {
   id: string;
@@ -11,11 +12,12 @@ export interface Snapshot {
   /** When we last tried (ms). */
   checkedAt: number;
   error: string | null;
+  /** How long the last check took (ms). */
+  ms: number | null;
   data: unknown;
 }
 
 const METRIC_EVERY_MS = 30_000;
-const RETENTION_MS = 14 * 86400_000;
 
 /** Polls each enabled integration on its own timer, caches the latest result, stores history, and pushes live updates. */
 export class Poller {
@@ -23,6 +25,7 @@ export class Poller {
   private timers = new Map<string, NodeJS.Timeout>();
   private failures = new Map<string, number>();
   private lastMetricAt = new Map<string, number>();
+  private lastHealthAt = new Map<string, number>();
   private pruneTimer?: NodeJS.Timeout;
   private stopped = false;
 
@@ -73,11 +76,14 @@ export class Poller {
     if (!row || !row.enabled) return undefined;
     const previous = this.snapshots.get(id);
     const snapshot = await this.fetchOnce(row, previous);
+    if (this.stopped) return snapshot;
     this.snapshots.set(id, snapshot);
     this.hub.broadcast("snapshot", snapshot);
 
-    if (previous && previous.ok !== snapshot.ok) {
-      logEvent(this.db, snapshot.ok ? "info" : "warn", row.name, snapshot.ok ? "Back online" : `Unreachable: ${snapshot.error}`);
+    this.recordHealth(row.id, snapshot);
+    const label = `${INTEGRATION_TYPES[row.type]?.name ?? row.type} "${row.name}"`;
+    if (previous ? previous.ok !== snapshot.ok : !snapshot.ok) {
+      logEvent(this.db, snapshot.ok ? "info" : "warn", "connection", snapshot.ok ? `${label} is back online` : `${label} is unreachable: ${snapshot.error}`);
     }
     const fails = snapshot.ok ? 0 : (this.failures.get(id) ?? 0) + 1;
     this.failures.set(id, fails);
@@ -90,15 +96,26 @@ export class Poller {
   private async fetchOnce(row: IntegrationRow, previous?: Snapshot): Promise<Snapshot> {
     const type = INTEGRATION_TYPES[row.type];
     const checkedAt = Date.now();
-    if (!type) return { id: row.id, ok: false, ts: previous?.ts ?? null, checkedAt, error: `Unknown integration type "${row.type}"`, data: previous?.data ?? null };
+    const t0 = performance.now();
+    if (!type) return { id: row.id, ok: false, ts: previous?.ts ?? null, checkedAt, error: `Unknown integration type "${row.type}"`, ms: null, data: previous?.data ?? null };
     try {
       const result = await type.poll(this.store.ctxOf(row));
       this.recordMetrics(row.id, result.metrics, checkedAt);
-      return { id: row.id, ok: true, ts: checkedAt, checkedAt, error: null, data: result.data };
+      return { id: row.id, ok: true, ts: checkedAt, checkedAt, error: null, ms: Math.round(performance.now() - t0), data: result.data };
     } catch (error) {
       // Keep showing the last good data (marked stale) rather than blanking the tile.
-      return { id: row.id, ok: false, ts: previous?.ts ?? null, checkedAt, error: error instanceof Error ? error.message : "Unknown error", data: previous?.data ?? null };
+      return { id: row.id, ok: false, ts: previous?.ts ?? null, checkedAt, error: error instanceof Error ? error.message : "Unknown error", ms: Math.round(performance.now() - t0), data: previous?.data ?? null };
     }
+  }
+
+  /** Up/down and response time, kept so the Status page can draw a history strip. */
+  private recordHealth(id: string, snap: Snapshot): void {
+    const now = snap.checkedAt;
+    if (now - (this.lastHealthAt.get(id) ?? 0) < 30_000 && snap.ok) return;
+    this.lastHealthAt.set(id, now);
+    const insert = this.db.prepare("INSERT INTO metrics (instance_id, key, ts, value) VALUES (?, ?, ?, ?)");
+    insert.run(id, "_up", now, snap.ok ? 1 : 0);
+    if (snap.ok && snap.ms !== null) insert.run(id, "_ms", now, snap.ms);
   }
 
   private recordMetrics(id: string, metrics: Record<string, number>, now: number): void {
@@ -108,9 +125,12 @@ export class Poller {
     for (const [key, value] of Object.entries(metrics)) if (Number.isFinite(value)) insert.run(id, key, now, value);
   }
 
-  private prune(): void {
-    this.db.prepare("DELETE FROM metrics WHERE ts < ?").run(Date.now() - RETENTION_MS);
-    this.db.prepare("DELETE FROM events WHERE ts < ?").run(Date.now() - 30 * 86400_000);
+  /** Applies the history settings now (also runs hourly). */
+  prune(): { metrics: number; events: number } {
+    const cfg = getSettings(this.db);
+    const m = this.db.prepare("DELETE FROM metrics WHERE ts < ?").run(Date.now() - cfg.metricsDays * 86400_000);
+    const e = this.db.prepare("DELETE FROM events WHERE ts < ?").run(Date.now() - cfg.logDays * 86400_000);
+    return { metrics: Number(m.changes), events: Number(e.changes) };
   }
 }
 

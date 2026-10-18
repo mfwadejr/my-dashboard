@@ -43,7 +43,38 @@ const MIGRATIONS: string[] = [
   `,
   `ALTER TABLE integrations ADD COLUMN insecure_tls INTEGER NOT NULL DEFAULT 0;`,
   /* 3: free tile placement. x/y are NULL until the browser assigns a spot (old dashboards are placed to match how they looked). */
-  `ALTER TABLE tiles ADD COLUMN x INTEGER; ALTER TABLE tiles ADD COLUMN y INTEGER; ALTER TABLE groups ADD COLUMN pack INTEGER NOT NULL DEFAULT 0;`
+  `ALTER TABLE tiles ADD COLUMN x INTEGER; ALTER TABLE tiles ADD COLUMN y INTEGER; ALTER TABLE groups ADD COLUMN pack INTEGER NOT NULL DEFAULT 0;`,
+  /* 4: accounts and roles, share links, persisted login throttle, searchable log */
+  `
+  CREATE TABLE users (
+    id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, role TEXT NOT NULL,
+    pass_hash TEXT NOT NULL, disabled INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
+  );
+  INSERT INTO users (id, username, role, pass_hash, created_at)
+    SELECT 'u-admin', 'admin', 'admin', v, CAST(strftime('%s','now') AS INTEGER) * 1000 FROM meta WHERE k = 'admin_hash';
+  DELETE FROM meta WHERE k = 'admin_hash';
+  ALTER TABLE sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT '';
+  ALTER TABLE sessions ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE sessions ADD COLUMN ip TEXT NOT NULL DEFAULT '';
+  ALTER TABLE sessions ADD COLUMN ua TEXT NOT NULL DEFAULT '';
+  UPDATE sessions SET user_id = 'u-admin', last_seen = created_at;
+  CREATE TABLE throttle (k TEXT PRIMARY KEY, n INTEGER NOT NULL, reset_at INTEGER NOT NULL);
+  CREATE TABLE shares (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, cameras TEXT NOT NULL DEFAULT '[]',
+    token_hash TEXT NOT NULL UNIQUE, token_sealed TEXT NOT NULL, pin_hash TEXT NOT NULL DEFAULT '',
+    expires_at INTEGER, revoked INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
+    last_used INTEGER, views INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX events_ts ON events(ts);
+  CREATE VIRTUAL TABLE events_fts USING fts5(message, source, content='events', content_rowid='id', tokenize='unicode61 remove_diacritics 2');
+  CREATE TRIGGER events_ai AFTER INSERT ON events BEGIN
+    INSERT INTO events_fts(rowid, message, source) VALUES (new.id, new.message, new.source);
+  END;
+  CREATE TRIGGER events_ad AFTER DELETE ON events BEGIN
+    INSERT INTO events_fts(events_fts, rowid, message, source) VALUES ('delete', old.id, old.message, old.source);
+  END;
+  INSERT INTO events_fts(events_fts) VALUES ('rebuild');
+  `
 ];
 
 export function openDb(dataDir: string): DB {
@@ -86,6 +117,9 @@ export function tx<T>(db: DB, fn: () => T): T {
   }
 }
 
-export function logEvent(db: DB, level: "info" | "warn" | "error", source: string, message: string): void {
-  db.prepare("INSERT INTO events (ts, level, source, message) VALUES (?, ?, ?, ?)").run(Date.now(), level, source, message.slice(0, 500));
+export type LogLevel = "info" | "warn" | "error";
+/** Log sources: security, settings, connection, camera, share, backup, system. Messages are plain sentences meant to be read and searched by people. */
+export function logEvent(db: DB, level: LogLevel, source: string, message: string): void {
+  try { db.prepare("INSERT INTO events (ts, level, source, message) VALUES (?, ?, ?, ?)").run(Date.now(), level, source, message.slice(0, 500)); }
+  catch { /* logging must never break the request that triggered it */ }
 }

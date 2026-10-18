@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { api, uid } from "./api";
-import { useAuth, useCameras, useDashboard, useIntegrations, useLive, usePref } from "./hooks";
+import { useAuth, useCameras, useDashboard, useIntegrations, useLive, usePref, type AuthState } from "./hooks";
+import { SettingsProvider, useSettings } from "./settings";
+import { SignIn } from "./pages/SignIn";
+import { ShareView } from "./pages/ShareView";
+import { SettingsPage, SECTIONS, type SectionId } from "./settings/SettingsPage";
+import { ACCENTS } from "./settings/General";
+import { AccountDialog } from "./dialogs/AccountDialog";
+import type { AboutInfo } from "./types";
 import { applyLayout } from "./layout";
 import { ROW_H, GRID_COLS, rowsUsed, clampCol, normalizeGroup, normalizeTab, placeTile, reflow, resizeTile, settle, spanOf } from "./grid";
 import type { Group, Tab, Tile } from "./types";
@@ -8,7 +15,6 @@ import { WIDGET_BY_TYPE } from "./widgets";
 import { GroupView, type Placeholder } from "./components/GroupView";
 import { Lightbox } from "./components/Lightbox";
 import { CameraPick } from "./components/CameraPick";
-import { AuthDialog } from "./dialogs/AuthDialog";
 import { CameraDialog } from "./dialogs/CameraDialog";
 import { Modal } from "./dialogs/Modal";
 import { IconPicker } from "./dialogs/IconPicker";
@@ -17,18 +23,45 @@ import { TabDialog } from "./dialogs/TabDialog";
 import { TileSettings } from "./dialogs/TileSettings";
 
 interface DragState { tileId: string; fromGroup: string; w: number; h: number; grabX: number; grabY: number; label: string; over: string | null; x: number; y: number; frozen: Record<string, number> }
-const ACCENTS = ["#6c8cff", "#3ecf8e", "#f5a524", "#f0616d", "#c04bff", "#35c5f4"];
 const newGroup = (name: string, layout = "free"): Group => ({ id: uid(), name, layout, collapsed: false, tiles: [] });
 const cloneTab = (tab: Tab, name: string): Tab => ({ ...tab, id: uid(), name, groups: tab.groups.map(g => ({ ...g, id: uid(), tiles: g.tiles.map(t => ({ ...t, id: uid(), config: JSON.parse(JSON.stringify(t.config)) })) })) });
 
+/** A link someone sent (/s/<token>) shows only the shared cameras. Anything else needs a signed-in account. */
 export function App() {
+  const shareToken = /^\/s\/([A-Za-z0-9_-]{20,80})\/?$/.exec(window.location.pathname)?.[1];
+  return shareToken ? <ShareView token={shareToken} /> : <Gate />;
+}
+
+function Gate() {
   const { auth, refreshAuth } = useAuth();
-  const { doc, update, save, saveError, reload, retry } = useDashboard(auth.authed);
-  const { snapshots, connected } = useLive();
-  const { integrations, refreshIntegrations } = useIntegrations(auth.authed);
+  if (!auth.loaded) return <div className="boot">Loading…</div>;
+  if (!auth.authed || !auth.user) return <SignIn setup={!auth.setup} onDone={() => void refreshAuth()} />;
+  return <SettingsProvider><Home auth={auth} refreshAuth={refreshAuth} /></SettingsProvider>;
+}
+
+const parseSettingsHash = (): SectionId | null => {
+  const m = /^#settings\/(\w+)/.exec(window.location.hash);
+  return SECTIONS.find(x => x.id === m?.[1])?.id ?? null;
+};
+
+function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promise<void> }) {
+  const me = auth.user!;
+  const isAdmin = me.role === "admin";
+  const { settings, reload: reloadSettings } = useSettings();
+  const { doc, update, save, saveError, reload, retry } = useDashboard(true);
+  const { snapshots, connected, serverBuild } = useLive();
+  const { integrations, refreshIntegrations } = useIntegrations(true);
   const { cameras, refreshCameras } = useCameras();
-  const [theme, setTheme] = usePref<"dark" | "light" | "glass">("hb_theme", "dark");
-  const [accent, setAccent] = usePref<string>("hb_accent", ACCENTS[0]);
+  const [devTheme, setDevTheme] = usePref<string>("hb_theme", "");
+  const [devAccent, setDevAccent] = usePref<string>("hb_accent", "");
+  const [devKiosk, setDevKiosk] = usePref<string>("hb_kiosk", "");
+  const [about, setAbout] = useState<AboutInfo | null>(null);
+  const [page, setPage] = useState<SectionId | null>(parseSettingsHash);
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? true);
+  const kioskParam = new URLSearchParams(window.location.search).get("kiosk");
+  const kiosk = auth.kiosk || kioskParam === "1" || (devKiosk === "1" && kioskParam !== "0");
+  const theme = ((devTheme || settings.theme) === "auto" ? (systemDark ? "dark" : "light") : (devTheme || settings.theme)) as "dark" | "light" | "glass";
+  const accent = devAccent || settings.accent;
   const [tabId, setTabId] = usePref<string>("hb_tab", "");
   const [editing, setEditing] = useState(false);
   const [query, setQuery] = useState("");
@@ -36,7 +69,7 @@ export function App() {
   const ghost = useRef<HTMLDivElement>(null);
   const ghostPos = useRef({ x: 0, y: 0 });
   const [dlg, setDlg] = useState<
-    | { kind: "auth" } | { kind: "connections" } | { kind: "tab"; edit: boolean }
+    | { kind: "account" } | { kind: "connections" } | { kind: "tab"; edit: boolean }
     | { kind: "settings"; tileId: string; v: number } | { kind: "icon"; tileId: string; itemId: string }
     | { kind: "camPick"; tileId: string } | { kind: "camera"; tileId: string; id?: string }
     | { kind: "lightbox"; cameraId: string } | { kind: "imported"; tileId: string; ids: string[] } | null
@@ -46,8 +79,45 @@ export function App() {
   useEffect(() => {
     document.body.className = theme === "dark" ? "" : theme;
     document.documentElement.style.setProperty("--accent", accent);
-  }, [theme, accent]);
-  useEffect(() => { if (!auth.authed) setEditing(false); }, [auth.authed]);
+    document.title = settings.name;
+  }, [theme, accent, settings.name]);
+  useEffect(() => { void api.get<AboutInfo>("/api/about").then(setAbout).catch(() => {}); }, [serverBuild]);
+  useEffect(() => {
+    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!mq) return;
+    const f = () => setSystemDark(mq.matches);
+    mq.addEventListener("change", f);
+    return () => mq.removeEventListener("change", f);
+  }, []);
+  useEffect(() => {
+    const f = () => setPage(parseSettingsHash());
+    window.addEventListener("hashchange", f);
+    return () => window.removeEventListener("hashchange", f);
+  }, []);
+  useEffect(() => { if (!isAdmin || kiosk) setEditing(false); }, [isAdmin, kiosk]);
+
+  // The server was updated while this page was open: a banner here, an automatic reload on a wall display.
+  const outdated = Boolean(serverBuild && serverBuild !== __BUILD__);
+  useEffect(() => { if (outdated && kiosk) { const t = window.setTimeout(() => window.location.reload(), 3000); return () => window.clearTimeout(t); } }, [outdated, kiosk]);
+
+  // Wall display: keep the screen awake and move through the tabs if asked to.
+  useEffect(() => {
+    if (!kiosk) return;
+    let lock: { release: () => Promise<void> } | null = null;
+    const ask = async () => { try { lock = await (navigator as any).wakeLock?.request("screen"); } catch { /* not allowed or not supported */ } };
+    void ask();
+    const onVis = () => { if (!document.hidden) void ask(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { document.removeEventListener("visibilitychange", onVis); void lock?.release().catch(() => {}); };
+  }, [kiosk]);
+  useEffect(() => {
+    if (!kiosk || !settings.kioskCycleSeconds || !doc || doc.tabs.length < 2) return;
+    const t = window.setInterval(() => {
+      const ids = doc.tabs.map(x => x.id), at = ids.indexOf(tabId);
+      setTabId(ids[(at + 1) % ids.length]);
+    }, settings.kioskCycleSeconds * 1000);
+    return () => window.clearInterval(t);
+  }, [kiosk, settings.kioskCycleSeconds, doc, tabId, setTabId]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -56,6 +126,9 @@ export function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  const gotoSettings = (s: SectionId) => { setEditing(false); window.location.hash = `settings/${s}`; };
+  const closeSettings = () => { window.history.pushState(null, "", window.location.pathname + window.location.search); setPage(null); };
 
   const rawTab = useMemo(() => doc?.tabs.find(t => t.id === tabId) ?? doc?.tabs[0], [doc, tabId]);
   // Every tile gets a spot (old dashboards are laid out the way they looked); nothing is saved until you change something.
@@ -218,7 +291,7 @@ export function App() {
   };
 
   const shared = {
-    editing, authed: auth.authed, snapshots, integrations, cameras, query,
+    editing, authed: isAdmin, snapshots, integrations, cameras, query,
     openCamera: (cameraId: string) => setDlg({ kind: "lightbox", cameraId }),
     refreshIntegrations,
     onResize: (id: string, w: number, h: number) => editTab(t => ({ ...t, groups: t.groups.map(g => (g.tiles.some(x => x.id === id) ? resizeTile(g, id, w, h) : g)) })),
@@ -233,32 +306,44 @@ export function App() {
 
   return (
     <>
-      <header className="top">
-        <div className="logo"><i />Homebase</div>
+      {!kiosk && <header className="top">
+        <div className="logo"><i />{settings.name}</div>
         <nav className="tabs" aria-label="Tabs">
           {doc.tabs.map(t => (
-            <button key={t.id} className={`tab ${t.id === tab.id ? "on" : ""}`} onClick={() => { if (t.id === tab.id && editing) setDlg({ kind: "tab", edit: true }); else setTabId(t.id); }}>
-              {t.emoji ? `${t.emoji} ` : ""}{t.name}{editing && t.id === tab.id ? <span className="tedit"> ✎</span> : null}
+            <button key={t.id} className={`tab ${t.id === tab.id && !page ? "on" : ""}`} onClick={() => { if (page) closeSettings(); if (t.id === tab.id && editing && !page) setDlg({ kind: "tab", edit: true }); else setTabId(t.id); }}>
+              {t.emoji ? `${t.emoji} ` : ""}{t.name}{editing && t.id === tab.id && !page ? <span className="tedit"> ✎</span> : null}
             </button>
           ))}
           {editing && <button className="tab add" aria-label="New tab" onClick={() => setDlg({ kind: "tab", edit: false })}>＋</button>}
         </nav>
         <label className="search">⌕ <input ref={search} value={query} onChange={e => setQuery(e.target.value)} placeholder="Search apps…" aria-label="Search" /><kbd>/</kbd></label>
-        <div className="sw" role="group" aria-label="Accent colour">{ACCENTS.map(c => <b key={c} className={c === accent ? "on" : ""} style={{ background: c }} onClick={() => setAccent(c)} />)}</div>
-        <select className="btn" value={theme} onChange={e => setTheme(e.target.value as any)} aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option><option value="glass">Glass</option></select>
-        <span className={`conn ${connected ? "on" : ""}`} title={connected ? "Live updates connected" : "Reconnecting…"} />
-        {auth.authed ? (
-          <>
-            {editing && <button className="btn" onClick={() => setDlg({ kind: "connections" })}>Connections</button>}
-            <button className={`btn ${editing ? "pri" : ""}`} onClick={async () => { if (editing) await retry(); setEditing(!editing); }}>{editing ? "✓ Done" : "✎ Edit"}</button>
-            {!editing && <button className="btn" onClick={async () => { await api.post("/api/auth/logout"); void refreshAuth(); }}>Sign out</button>}
-          </>
-        ) : <button className="btn" onClick={() => setDlg({ kind: "auth" })}>{auth.setup ? "Sign in to edit" : "Set up"}</button>}
-      </header>
+        {isAdmin ? <button className={`conn ${connected ? "on" : ""}`} aria-label="Live updates: open the status page" title={connected ? "Live updates connected. Click for status." : "Reconnecting… Click for status."} onClick={() => gotoSettings("status")} />
+          : <span className={`conn ${connected ? "on" : ""}`} title={connected ? "Live updates connected" : "Reconnecting…"} />}
+        {isAdmin && editing && !page && <button className="btn" onClick={() => setDlg({ kind: "connections" })}>Connections</button>}
+        {isAdmin && !page && <button className={`btn ${editing ? "pri" : ""}`} onClick={async () => { if (editing) await retry(); setEditing(!editing); }}>{editing ? "✓ Done" : "✎ Edit"}</button>}
+        {isAdmin && !editing && <button className={`btn ${page ? "pri" : ""}`} aria-label="Settings" title="Settings" onClick={() => (page ? closeSettings() : gotoSettings("general"))}>⚙{page ? " Close" : ""}</button>}
+        {!editing && <button className="btn" title="Your account" onClick={() => setDlg({ kind: "account" })}>{me.username}</button>}
+        {!editing && !auth.kiosk && <button className="btn" onClick={async () => { await api.post("/api/auth/logout"); void refreshAuth(); }}>Sign out</button>}
+      </header>}
+      {kiosk && !auth.kiosk && <button className="kiosk-exit" aria-label="Leave wall display" title="Leave wall display mode" onClick={() => { setDevKiosk(""); window.location.href = "/?kiosk=0"; }}>✕</button>}
+      {outdated && (
+        <div className="banner">A new version of Homebase is running on the server.{" "}
+          <button className="btn sm" onClick={() => window.location.reload()}>Reload this page</button>
+          {about && <span className="sub">now {about.version} ({about.commit})</span>}</div>
+      )}
 
       {save === "conflict" && <div className="banner">This dashboard was changed somewhere else. <button className="btn sm" onClick={() => void reload()}>Load the latest</button> (your unsaved changes here will be replaced)</div>}
       {save === "error" && <div className="banner">Could not save: {saveError} <button className="btn sm" onClick={() => void retry()}>Try again</button></div>}
 
+      {page && isAdmin ? (
+        <main className="settings-main">
+          <SettingsPage section={page} onSection={gotoSettings} me={me} integrations={integrations} cameras={cameras} about={about}
+            device={{ theme: devTheme, setTheme: setDevTheme, accent: devAccent, setAccent: setDevAccent, kiosk: devKiosk === "1", setKiosk: on => setDevKiosk(on ? "1" : "") }}
+            openConnections={() => setDlg({ kind: "connections" })}
+            onRestored={() => { void reload(); refreshIntegrations(); refreshCameras(); void reloadSettings(); }}
+            onSignedOut={() => void refreshAuth()} />
+        </main>
+      ) : (
       <main className={editing ? "edit" : ""}>
         {editing && <div className="savestate sub">{save === "saving" ? "Saving…" : save === "saved" ? "All changes saved" : "Drag a tile anywhere to move it, or into another group. Drag the corner to resize. Esc cancels a drag."}</div>}
         {tab.groups.map(group => (
@@ -274,9 +359,12 @@ export function App() {
         ))}
         {editing && <button className="btn" onClick={() => editTab(t => ({ ...t, groups: [...t.groups, newGroup("New group")] }))}>＋ Add group</button>}
       </main>
+      )}
+      {kiosk && doc.tabs.length > 1 && <div className="kiosk-dots" role="tablist">{doc.tabs.map(t => <button key={t.id} role="tab" aria-selected={t.id === tab.id} aria-label={t.name} className={t.id === tab.id ? "on" : ""} onClick={() => setTabId(t.id)} />)}</div>}
+      {!kiosk && <footer className="foot sub">{about ? `Homebase ${about.version} · ${about.commit}` : ""}</footer>}
 
       {drag && <div ref={ghost} className="ghost" style={{ width: drag.w, height: drag.h, transform: `translate(${ghostPos.current.x}px, ${ghostPos.current.y}px)` }}>{drag.label}</div>}
-      {dlg?.kind === "auth" && <AuthDialog setup={!auth.setup} onClose={() => setDlg(null)} onDone={() => { setDlg(null); void refreshAuth(); }} />}
+      {dlg?.kind === "account" && <AccountDialog me={me} onSignedOut={() => void refreshAuth()} onClose={() => setDlg(null)} />}
       {dlg?.kind === "connections" && <IntegrationsDialog integrations={integrations} onChanged={refreshIntegrations} onClose={() => setDlg(null)} />}
       {dlg?.kind === "tab" && <TabDialog tab={dlg.edit ? tab : undefined} canDelete={doc.tabs.length > 1} onSave={saveTab} onDelete={deleteTab} onClose={() => setDlg(null)} />}
       {dlg?.kind === "settings" && settingsTile && (

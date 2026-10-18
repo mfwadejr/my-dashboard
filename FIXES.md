@@ -3,6 +3,8 @@
 Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 
 ## Open
+- Platform follow-ups: external alerts (ntfy/Discord/webhook) deferred by choice; OIDC sign-in; per-person permissions beyond Admin/Viewer; UI restore of a database copy (today: stop the container and replace homebase.db).
+- Competitor gaps to schedule: global search across tiles and links, bookmarks tile with icon library, up/down dots on any link, multiple boards, themes and background image, more integrations (Plex/Jellyfin/Seerr, Pi-hole, Proxmox, Home Assistant, qBittorrent), translations, Docker label auto-discovery.
 - Unraid network graph like ZimaOS: waiting on what this Unraid version exposes. Press Test on the Unraid connection and note the "Network-related fields" line.
 
 - ZimaOS Storage: ZimaOS's own widget shows health, used and total for the storage pool; Homebase lists drives only.
@@ -11,6 +13,7 @@ Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 - Verify against real hardware: Protect, Prowlarr, Site Gateway, Unraid, ZimaOS.
 
 ## Done
+- Platform pass (update32): Settings page with General (name, time zone, clock, week start, public address, appearance moved out of the header with dashboard default and per-device override, wall display, history limits), Data & backup (JSON export with optional passphrase, restore with preview, nightly SQLite copies, encryption key download, danger zone), Access (Admin/Viewer accounts, password change, signed-in devices), Sharing (camera links with expiry, PIN, switch off; wall-display links), Status & log (per-connection state and 24 h strip, searchable plain-English log with filters and CSV export) and About. Version, commit and build date baked into the image, shown in the footer, About and health check; open pages show a reload banner after an update. No anonymous viewing. Public port 3001 serves share links only. Wall display mode, tab cycling, wake lock and a PWA manifest.
 - Tiles can be placed anywhere by dragging in edit mode: snap-to-grid with a landing outline, other tiles make room, drag between groups, per-group Auto-pack, Esc cancels, edge auto-scroll; the Arrange presets are one-time buttons and moving a tile switches the group back to Free.
 - Cameras: Test button (connects through go2rtc and shows a picture or a plain-language reason), snapshot mode (refreshed stills), a Camera wall tile (several cameras, stills or live), and import of cameras from a UniFi Protect connection.
 - Cameras: UniFi Protect secure links (rtsps://…:7441/…?enableSrtp) are converted to plain RTSP (port 7447) automatically, in the dialog and on the server.
