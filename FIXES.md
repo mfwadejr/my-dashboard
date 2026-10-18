@@ -21,6 +21,7 @@ Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 - Verify against real hardware: Protect, Prowlarr, Site Gateway, Unraid, ZimaOS.
 
 ## Done
+- update39: empty camera and camera-wall tiles (no camera chosen, or the camera was removed) have proper padding instead of text touching the edge.
 - update38: camera tiles and camera walls get a Quality choice (light sub-stream, or full-resolution main stream); the picture opened full size still always uses the main stream.
 - update37: "Copy link" (share links, API tokens, recovery codes) now works when Homebase is opened over plain http on a home network, where browsers disable the clipboard API; ZimaOS compose file gained the app-store details and both ports.
 - update36: open address per connection (the address your browser uses, separate from the one Homebase uses; optional, opens in a new tab or inside Homebase); in-app opening with a server-side check of whether the app allows being framed (clear reason and a new-tab button when it does not); an Open ↗ button on connection tiles and in the connection list; per-link "Inside Homebase" option in the Launcher; global search (/ or Ctrl/Cmd+K) across tabs, tiles, Launcher links, connections, cameras and settings pages.

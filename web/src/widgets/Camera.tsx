@@ -61,11 +61,11 @@ export function Camera({ tile, cameras, editing, openCamera, openSettings }: Wid
   const cam = cameras.find(c => c.id === cameraId);
   if (!cameraId || !cam) {
     return (
-      <>
+      <div className="cam-empty">
         <Title>Camera</Title>
         <Empty>{cameraId ? "This camera was removed." : "No camera set up."}</Empty>
         {editing && <button className="btn sm" onClick={openSettings}>Set up camera</button>}
-      </>
+      </div>
     );
   }
   return (

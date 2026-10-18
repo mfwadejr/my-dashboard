@@ -313,3 +313,4 @@ dialog.palette{width:min(640px,94vw);margin:12vh auto auto;padding:0;border:1px 
 .pal-row em{font-style:normal;font-size:11px;color:var(--mute);border:1px solid var(--line);border-radius:99px;padding:1px 8px}
 .pal-foot{padding:8px 14px;border-top:1px solid var(--line);font-size:12px}
 .tile.flash{animation:flash 1.8s ease-out}@keyframes flash{0%,40%{box-shadow:0 0 0 3px var(--accent)}100%{box-shadow:none}}
+.cam-empty,.wall-empty{padding:14px;display:flex;flex-direction:column;gap:8px;flex:1;min-width:0;background:var(--panel)}
