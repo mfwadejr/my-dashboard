@@ -112,6 +112,7 @@ export function TileSettings({ tile, integrations, cameras = [], onAddCameras, o
                   <IconButton icon={item.icon} iconRef={item.iconRef} name={item.name || "?"} onChange={v => patchItem(item.id, { icon: v.icon || null, iconRef: v.iconRef || null })} />
                   <input placeholder="Name" value={item.name} onChange={e => patchItem(item.id, { name: e.target.value })} maxLength={40} />
                   <input placeholder="https://…" value={item.url} onChange={e => patchItem(item.id, { url: e.target.value })} />
+                  <select value={item.openMode ?? "tab"} onChange={e => patchItem(item.id, { openMode: e.target.value as "tab" | "inapp" })} title="Where this link opens" aria-label={`Where ${item.name || "this link"} opens`}><option value="tab">New tab</option><option value="inapp">Inside Homebase</option></select>
                   <select value={item.integrationId ?? ""} onChange={e => patchItem(item.id, { integrationId: e.target.value || null })} title="Show a status dot from a connection">
                     <option value="">No status</option>{integrations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
                   </select>

@@ -2,13 +2,13 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { Icon } from "../components/Icon";
 
 /** The icon chosen for the tile being drawn; the tile's title shows it. */
-export const TileIconContext = createContext<{ icon?: string; iconRef?: string } | null>(null);
+export const TileIconContext = createContext<{ icon?: string; iconRef?: string; open?: () => void; openName?: string } | null>(null);
 
 export const initials = (name: string) => name.replace(/[^A-Za-z0-9 ]/g, " ").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase() || "?";
 
 export function Title({ children, right }: { children: ReactNode; right?: ReactNode }) {
   const ti = useContext(TileIconContext);
-  return <h4>{ti?.icon ? <Icon icon={ti.icon} iconRef={ti.iconRef} size={16} className="title-ic" /> : null}{children}{right ? <span className="right">{right}</span> : null}</h4>;
+  return <h4>{ti?.icon ? <Icon icon={ti.icon} iconRef={ti.iconRef} size={16} className="title-ic" /> : null}{children}{ti?.open ? <button type="button" className="title-open" title={`Open ${ti.openName ?? "the app"}`} aria-label={`Open ${ti.openName ?? "the app"}`} onClick={e => { e.stopPropagation(); ti.open?.(); }}>↗</button> : null}{right ? <span className="right">{right}</span> : null}</h4>;
 }
 
 export function Bar({ value, tone }: { value: number; tone?: "ok" | "warn" | "bad" }) {

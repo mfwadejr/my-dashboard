@@ -6,6 +6,7 @@ A self-hosted dashboard with tabs, groups, resizable tiles, live app stats and c
 
 1. Open the ZimaOS App Store, click **+** (Custom Install) and import `deploy/compose.zimaos.yaml`.
 2. Open `http://<your-zima-ip>:3000`. The first visit asks you to create the admin account (nobody sees anything without signing in).
+3. Press **/** (or Ctrl/Cmd+K) to search everything: tabs, tiles, Launcher links, connections, cameras and settings pages. Connections can have an optional *open address* (what your browser uses) and can open inside Homebase when the app allows being shown in a frame; otherwise they open in a new tab.
 3. Click **Edit** to change the layout. The ⚙ gear opens Settings: backups, people, sharing, status and the log.
 4. **Connections** → pick an app (Sonarr, Radarr, Prowlarr, SABnzbd, Site Gateway, Unraid, ZimaOS, UniFi Network/Protect/PDU/UNAS) → enter the address and API key → **Test connection** → Save.
 5. **Add tile** in a group, choose the connection, and drag/resize tiles. Layout is saved automatically.

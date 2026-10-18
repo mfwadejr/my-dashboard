@@ -1,10 +1,12 @@
 import type { WidgetProps } from "./types";
 import { Title, initials } from "./common";
 import { Icon } from "../components/Icon";
+import { useOpener } from "../components/Opener";
 
-export interface LauncherItem { id: string; name: string; url: string; icon?: string | null; iconRef?: string | null; integrationId?: string | null; note?: string }
+export interface LauncherItem { id: string; name: string; url: string; icon?: string | null; iconRef?: string | null; openMode?: "tab" | "inapp"; integrationId?: string | null; note?: string }
 
 export function Launcher({ tile, snapshots, query, editing }: WidgetProps) {
+  const opener = useOpener();
   const items = (tile.config.items ?? []) as LauncherItem[];
   const q = query.trim().toLowerCase();
   const shown = q ? items.filter(i => i.name.toLowerCase().includes(q) || (i.note ?? "").toLowerCase().includes(q)) : items;
@@ -17,7 +19,7 @@ export function Launcher({ tile, snapshots, query, editing }: WidgetProps) {
           const snap = item.integrationId ? snapshots[item.integrationId] : undefined;
           const status = snap ? (snap.ok ? "ok" : "bad") : "";
           return (
-            <a key={item.id} className="app" href={editing ? undefined : item.url} target="_blank" rel="noreferrer noopener" onClick={e => editing && e.preventDefault()} draggable={false}>
+            <a key={item.id} className="app" href={editing ? undefined : item.url} target="_blank" rel="noreferrer noopener" onClick={e => { if (editing) e.preventDefault(); else if (item.openMode === "inapp" && !(e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1)) { e.preventDefault(); opener({ url: item.url, name: item.name, mode: "inapp" }); } }} draggable={false}>
               {status && <span className={`dot ${status}`} title={snap?.ok ? "Online" : snap?.error ?? "Offline"} />}
               <div className="ic">{item.icon ? <Icon icon={item.icon} iconRef={item.iconRef} name={item.name} size={30} /> : initials(item.name)}</div>
               <div className="n">{item.name}</div>

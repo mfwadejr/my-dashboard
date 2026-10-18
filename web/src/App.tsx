@@ -18,6 +18,7 @@ import { CameraPick } from "./components/CameraPick";
 import { CameraDialog } from "./dialogs/CameraDialog";
 import { Modal } from "./dialogs/Modal";
 import { Icon } from "./components/Icon";
+import { SearchPalette } from "./components/SearchPalette";
 import { IntegrationsDialog } from "./dialogs/IntegrationsDialog";
 import { TabDialog } from "./dialogs/TabDialog";
 import { TileSettings } from "./dialogs/TileSettings";
@@ -64,7 +65,7 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
   const accent = devAccent || settings.accent;
   const [tabId, setTabId] = usePref<string>("hb_tab", "");
   const [editing, setEditing] = useState(false);
-  const [query, setQuery] = useState("");
+  const query = "";
   const [drag, setDrag] = useState<DragState | null>(null);
   const ghost = useRef<HTMLDivElement>(null);
   const ghostPos = useRef({ x: 0, y: 0 });
@@ -74,7 +75,7 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
     | { kind: "camPick"; tileId: string } | { kind: "camera"; tileId: string; id?: string }
     | { kind: "lightbox"; cameraId: string } | { kind: "imported"; tileId: string; ids: string[] } | null
   >(null);
-  const search = useRef<HTMLInputElement>(null);
+  const [palette, setPalette] = useState(false);
 
   useEffect(() => {
     document.body.className = theme === "dark" ? "" : theme;
@@ -122,7 +123,7 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
-      if (e.key === "/" && tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") { e.preventDefault(); search.current?.focus(); }
+      if (((e.key === "/" && tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k")) && !document.querySelector("dialog[open]")) { e.preventDefault(); setPalette(true); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -317,7 +318,7 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
           ))}
           {editing && <button className="tab add" aria-label="New tab" onClick={() => setDlg({ kind: "tab", edit: false })}>＋</button>}
         </nav>
-        <label className="search">⌕ <input ref={search} value={query} onChange={e => setQuery(e.target.value)} placeholder="Search apps…" aria-label="Search" /><kbd>/</kbd></label>
+        <button type="button" className="search" onClick={() => setPalette(true)} aria-label="Search everything">⌕ <span>Search…</span><kbd>/</kbd></button>
         {isAdmin ? <button className={`conn ${connected ? "on" : ""}`} aria-label="Live updates: open the status page" title={connected ? "Live updates connected. Click for status." : "Reconnecting… Click for status."} onClick={() => gotoSettings("status")} />
           : <span className={`conn ${connected ? "on" : ""}`} title={connected ? "Live updates connected" : "Reconnecting…"} />}
         {isAdmin && editing && !page && <button className="btn" onClick={() => setDlg({ kind: "connections" })}>Connections</button>}
@@ -365,6 +366,9 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
       {!kiosk && <footer className="foot sub">{about ? `Homebase ${about.version} · ${about.commit}` : ""}</footer>}
 
       {drag && <div ref={ghost} className="ghost" style={{ width: drag.w, height: drag.h, transform: `translate(${ghostPos.current.x}px, ${ghostPos.current.y}px)` }}>{drag.label}</div>}
+      {palette && <SearchPalette doc={doc} integrations={integrations} cameras={cameras} isAdmin={isAdmin} onClose={() => setPalette(false)}
+        onTab={(tid, tile) => { if (page) closeSettings(); setTabId(tid); if (tile) window.setTimeout(() => { const el = document.querySelector(`[data-tile="${tile}"]`); el?.scrollIntoView({ block: "center", behavior: "smooth" }); el?.classList.add("flash"); window.setTimeout(() => el?.classList.remove("flash"), 1800); }, 150); }}
+        onSettings={gotoSettings} onCamera={id => setDlg({ kind: "lightbox", cameraId: id })} />}
       {dlg?.kind === "account" && <AccountDialog me={me} onSignedOut={() => void refreshAuth()} onClose={() => setDlg(null)} />}
       {dlg?.kind === "connections" && <IntegrationsDialog integrations={integrations} onChanged={refreshIntegrations} onClose={() => setDlg(null)} />}
       {dlg?.kind === "tab" && <TabDialog tab={dlg.edit ? tab : undefined} canDelete={doc.tabs.length > 1} onSave={saveTab} onDelete={deleteTab} onClose={() => setDlg(null)} />}

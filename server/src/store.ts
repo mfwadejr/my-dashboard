@@ -5,37 +5,37 @@ import type { Ctx } from "./integrations/types.js";
 import { maskUrlSecret, unmaskUrlSecret } from "./crypto.js";
 import { cleanIcon, cleanIconRef } from "./icons.js";
 
-export interface IntegrationRow { id: string; type: string; name: string; url: string; interval_s: number; enabled: number; secret: string; insecure_tls: number; icon: string; icon_ref: string }
+export interface IntegrationRow { id: string; type: string; name: string; url: string; interval_s: number; enabled: number; secret: string; insecure_tls: number; icon: string; icon_ref: string; open_url: string; open_mode: string }
 
 export class Store {
   constructor(private db: DB, private box: SecretBox) {}
 
   listIntegrations(): IntegrationRow[] {
-    return this.db.prepare("SELECT id, type, name, url, interval_s, enabled, secret, insecure_tls, icon, icon_ref FROM integrations ORDER BY created_at").all() as unknown as IntegrationRow[];
+    return this.db.prepare("SELECT id, type, name, url, interval_s, enabled, secret, insecure_tls, icon, icon_ref, open_url, open_mode FROM integrations ORDER BY created_at").all() as unknown as IntegrationRow[];
   }
 
   getIntegration(id: string): IntegrationRow | undefined {
-    return this.db.prepare("SELECT id, type, name, url, interval_s, enabled, secret, insecure_tls, icon, icon_ref FROM integrations WHERE id = ?").get(id) as IntegrationRow | undefined;
+    return this.db.prepare("SELECT id, type, name, url, interval_s, enabled, secret, insecure_tls, icon, icon_ref, open_url, open_mode FROM integrations WHERE id = ?").get(id) as IntegrationRow | undefined;
   }
 
   apiKeyOf(row: IntegrationRow): string { return this.box.open(row.secret); }
 
   ctxOf(row: IntegrationRow): Ctx { return { url: row.url, apiKey: this.box.open(row.secret), insecureTls: Boolean(row.insecure_tls) }; }
 
-  createIntegration(input: { type: string; name: string; url: string; apiKey: string; intervalSeconds: number; insecureTls?: boolean }): string {
+  createIntegration(input: { type: string; name: string; url: string; apiKey: string; intervalSeconds: number; insecureTls?: boolean; openUrl?: string; openMode?: string }): string {
     const id = randomUUID().slice(0, 12);
-    this.db.prepare("INSERT INTO integrations (id, type, name, url, secret, interval_s, enabled, created_at, insecure_tls) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)")
-      .run(id, input.type, input.name, input.url, this.box.seal(input.apiKey), input.intervalSeconds, Date.now(), input.insecureTls ? 1 : 0);
+    this.db.prepare("INSERT INTO integrations (id, type, name, url, secret, interval_s, enabled, created_at, insecure_tls, open_url, open_mode) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)")
+      .run(id, input.type, input.name, input.url, this.box.seal(input.apiKey), input.intervalSeconds, Date.now(), input.insecureTls ? 1 : 0, input.openUrl ?? "", input.openMode ?? "tab");
     return id;
   }
 
-  updateIntegration(id: string, input: { name: string; url: string; apiKey?: string; intervalSeconds: number; enabled: boolean; insecureTls?: boolean }): void {
+  updateIntegration(id: string, input: { name: string; url: string; apiKey?: string; intervalSeconds: number; enabled: boolean; insecureTls?: boolean; openUrl?: string; openMode?: string }): void {
     if (input.apiKey) {
-      this.db.prepare("UPDATE integrations SET name=?, url=?, secret=?, interval_s=?, enabled=?, insecure_tls=? WHERE id=?")
-        .run(input.name, input.url, this.box.seal(input.apiKey), input.intervalSeconds, input.enabled ? 1 : 0, input.insecureTls ? 1 : 0, id);
+      this.db.prepare("UPDATE integrations SET name=?, url=?, secret=?, interval_s=?, enabled=?, insecure_tls=?, open_url=?, open_mode=? WHERE id=?")
+        .run(input.name, input.url, this.box.seal(input.apiKey), input.intervalSeconds, input.enabled ? 1 : 0, input.insecureTls ? 1 : 0, input.openUrl ?? "", input.openMode ?? "tab", id);
     } else {
-      this.db.prepare("UPDATE integrations SET name=?, url=?, interval_s=?, enabled=?, insecure_tls=? WHERE id=?")
-        .run(input.name, input.url, input.intervalSeconds, input.enabled ? 1 : 0, input.insecureTls ? 1 : 0, id);
+      this.db.prepare("UPDATE integrations SET name=?, url=?, interval_s=?, enabled=?, insecure_tls=?, open_url=?, open_mode=? WHERE id=?")
+        .run(input.name, input.url, input.intervalSeconds, input.enabled ? 1 : 0, input.insecureTls ? 1 : 0, input.openUrl ?? "", input.openMode ?? "tab", id);
     }
   }
 
@@ -45,9 +45,9 @@ export class Store {
   }
 
   /** Used by backup restore: keeps the original id so tiles that point at it keep working. */
-  importIntegration(i: { id: string; type: string; name: string; url: string; apiKey: string; intervalSeconds: number; enabled: boolean; insecureTls: boolean; icon?: string; iconRef?: string }): void {
-    this.db.prepare("INSERT INTO integrations (id, type, name, url, secret, interval_s, enabled, created_at, insecure_tls, icon, icon_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(i.id, i.type, i.name, i.url, this.box.seal(i.apiKey), i.intervalSeconds, i.enabled ? 1 : 0, Date.now(), i.insecureTls ? 1 : 0, cleanIcon(i.icon), cleanIcon(i.icon) ? cleanIconRef(i.iconRef) : "");
+  importIntegration(i: { id: string; type: string; name: string; url: string; apiKey: string; intervalSeconds: number; enabled: boolean; insecureTls: boolean; icon?: string; iconRef?: string; openUrl?: string; openMode?: string }): void {
+    this.db.prepare("INSERT INTO integrations (id, type, name, url, secret, interval_s, enabled, created_at, insecure_tls, icon, icon_ref, open_url, open_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(i.id, i.type, i.name, i.url, this.box.seal(i.apiKey), i.intervalSeconds, i.enabled ? 1 : 0, Date.now(), i.insecureTls ? 1 : 0, cleanIcon(i.icon), cleanIcon(i.icon) ? cleanIconRef(i.iconRef) : "", i.openUrl ?? "", i.openMode ?? "tab");
   }
 
   importCamera(c: { id: string; name: string; main: string; sub: string; icon?: string; iconRef?: string }): void {

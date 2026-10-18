@@ -8,6 +8,8 @@ import type { Store } from "../store.js";
 import type { LiveSampler } from "../live.js";
 import { RELEASES, buildCalendar, fetchPoster, type Release } from "../calendar.js";
 import { IntegrationError, normalizeUrl } from "../integrations/http.js";
+import { cleanOpenMode, cleanOpenUrl, frameCheck } from "../openaddr.js";
+import { readDashboard } from "../dashboard.js";
 import { INTEGRATION_TYPES, publicTypeInfo } from "../integrations/registry.js";
 
 function parseInput(body: any, existing?: { type: string }) {
@@ -19,7 +21,8 @@ function parseInput(body: any, existing?: { type: string }) {
   const apiKey = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
   const intervalSeconds = Math.max(5, Math.min(3600, Math.round(Number(body?.intervalSeconds ?? 15)) || 15));
   const insecureTls = Boolean(body?.insecureTls);
-  return { type, name, url, apiKey, intervalSeconds, insecureTls, enabled: body?.enabled === undefined ? true : Boolean(body.enabled) };
+  const openUrl = cleanOpenUrl(body?.openUrl), openMode = cleanOpenMode(body?.openMode);
+  return { type, name, url, apiKey, intervalSeconds, insecureTls, openUrl, openMode, enabled: body?.enabled === undefined ? true : Boolean(body.enabled) };
 }
 
 export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, poller: Poller, hub: Hub, requireAuth: preHandlerAsyncHookHandler, live: LiveSampler, access: Access, version: string): void {
@@ -29,7 +32,7 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
   app.get("/api/integrations", async request => {
     const p = access.principal(request); const admin = p?.kind === "user" && p.user.role === "admin";
     return store.listIntegrations().map(row => ({
-      id: row.id, type: row.type, name: row.name, enabled: Boolean(row.enabled), icon: row.icon, iconRef: row.icon_ref,
+      id: row.id, type: row.type, name: row.name, enabled: Boolean(row.enabled), icon: row.icon, iconRef: row.icon_ref, openUrl: row.open_url, openMode: row.open_mode,
       ...(admin ? { url: row.url, intervalSeconds: row.interval_s, hasKey: Boolean(row.secret), insecureTls: Boolean(row.insecure_tls) } : {})
     }));
   });
@@ -54,7 +57,7 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
     if (!row) return reply.code(404).send({ error: "Not found" });
     try {
       const input = parseInput(request.body, row);
-      store.updateIntegration(id, { name: input.name, url: input.url, apiKey: input.apiKey || undefined, intervalSeconds: input.intervalSeconds, enabled: input.enabled, insecureTls: input.insecureTls });
+      store.updateIntegration(id, { name: input.name, url: input.url, apiKey: input.apiKey || undefined, intervalSeconds: input.intervalSeconds, enabled: input.enabled, insecureTls: input.insecureTls, openUrl: input.openUrl, openMode: input.openMode });
       poller.reload(id);
       logEvent(db, "info", "connection", `${access.actor(request)} changed the connection "${input.name}"${input.enabled ? "" : " (switched off)"}`);
       return { ok: true };
@@ -62,6 +65,22 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
       if (error instanceof IntegrationError) return reply.code(400).send({ error: error.message });
       throw error;
     }
+  });
+
+  /**
+   * Can this address be shown inside Homebase? Only addresses Homebase already knows are checked (a connection's open address or
+   * address, or a Launcher link), so nobody can use this to make the server visit arbitrary sites.
+   */
+  app.get("/api/frame-check", async (request, reply) => {
+    const raw = String((request.query as { url?: string })?.url ?? "");
+    let wanted = ""; try { wanted = new URL(raw).toString(); } catch { return reply.code(400).send({ error: "That is not an address" }); }
+    let insecure = false, known = false;
+    const same = (a: string) => { try { return new URL(a).toString() === wanted; } catch { return false; } };
+    for (const row of store.listIntegrations()) if (same(row.open_url) || (!row.open_url && same(row.url))) { known = true; insecure = Boolean(row.insecure_tls); }
+    if (!known) for (const t of readDashboard(db).tabs) for (const g of t.groups) for (const tile of g.tiles) for (const it of ((tile.config as { items?: Array<{ url?: string }> }).items ?? [])) if (typeof it?.url === "string" && same(it.url)) known = true;
+    if (!known) return reply.code(404).send({ error: "Homebase only checks addresses it has saved" });
+    const home = new URL(`${request.protocol}://${request.headers.host ?? "localhost"}`);
+    return frameCheck(wanted, insecure, home);
   });
 
   app.delete("/api/integrations/:id", { preHandler: requireAuth }, async request => {

@@ -5,6 +5,7 @@ import { spanOf } from "../grid";
 import { WIDGET_BY_TYPE } from "../widgets";
 import type { WidgetProps } from "../widgets/types";
 import { TileIconContext } from "../widgets/common";
+import { addressOf, modeOf, useOpener } from "./Opener";
 
 export interface FrameProps extends Omit<WidgetProps, "setConfig" | "openSettings"> {
   gridWidth: () => number;
@@ -22,6 +23,9 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 export function TileFrame(p: FrameProps) {
   const { tile, editing } = p;
   const def = WIDGET_BY_TYPE[tile.type];
+  const opener = useOpener();
+  const conn = p.integrations.find(i => i.id === tile.config.integrationId);
+  const address = conn ? addressOf(conn) : "";
   const start = useRef<{ x: number; y: number; w: number; h: number; colPx: number } | null>(null);
 
   const onHandleDown = (e: RPointerEvent<HTMLButtonElement>) => {
@@ -48,7 +52,7 @@ export function TileFrame(p: FrameProps) {
   const place = { gridColumn: `${x + 1} / span ${spanOf(tile)}`, gridRow: `${y + 1} / span ${tile.h}`, order: y * 12 + x, ["--h" as string]: tile.h } as CSSProperties;
   return (
     <div className={`tile ${cam ? "cam" : ""} ${p.lifted ? "lifted" : ""}`} style={place} data-tile={tile.id}>
-      {Body ? <TileIconContext.Provider value={{ icon: tile.config.icon as string | undefined, iconRef: tile.config.iconRef as string | undefined }}><Body {...props} /></TileIconContext.Provider> : <div className="empty-note">Unknown tile “{tile.type}”.</div>}
+      {Body ? <TileIconContext.Provider value={{ icon: tile.config.icon as string | undefined, iconRef: tile.config.iconRef as string | undefined, open: address && !editing && conn ? () => opener({ url: address, name: conn.name, mode: modeOf(conn) }) : undefined, openName: conn?.name }}><Body {...props} /></TileIconContext.Provider> : <div className="empty-note">Unknown tile “{tile.type}”.</div>}
       {editing && (
         <>
           <div className="dragzone" aria-label="Drag to move" onPointerDown={e => p.onGrab(tile, e)} />

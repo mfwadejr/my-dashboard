@@ -105,7 +105,11 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (source, slug)
   );
   CREATE INDEX icon_index_slug ON icon_index(slug);
+  `,
+  /* 7: the address a browser opens for a connection (may differ from the one the server uses) and whether it opens inside Homebase. */
   `
+  ALTER TABLE integrations ADD COLUMN open_url TEXT NOT NULL DEFAULT ''; ALTER TABLE integrations ADD COLUMN open_mode TEXT NOT NULL DEFAULT 'tab';
+`
 ];
 
 /** Exposed for tests that need to build an older database. */
