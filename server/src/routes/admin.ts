@@ -129,9 +129,12 @@ export function adminRoutes(app: FastifyInstance, d: Deps): void {
   app.post("/api/backup/export", admin, async (request, reply) => {
     const pass = typeof (request.body as any)?.passphrase === "string" ? (request.body as any).passphrase : "";
     if (pass && (pass.length < 8 || pass.length > 200)) return reply.code(400).send({ error: "Use a passphrase of at least 8 characters" });
-    const file = exportBackup(d, pass);
-    logEvent(db, "info", "backup", `${access.actor(request)} exported a backup${pass ? " including passwords and keys (protected by a passphrase)" : " without passwords and keys"}`);
-    return file;
+    const withAccounts = Boolean((request.body as any)?.includeAccounts);
+    try {
+      const file = exportBackup(d, pass, { accounts: withAccounts });
+      logEvent(db, "info", "backup", `${access.actor(request)} exported a backup${pass ? " including passwords and keys (protected by a passphrase)" : " without passwords and keys"}${withAccounts ? " and accounts" : ""}`);
+      return file;
+    } catch (error) { return bad(reply, error); }
   });
 
   const importBody = { bodyLimit: 8_000_000, preHandler: access.requireAdmin };
@@ -139,7 +142,8 @@ export function adminRoutes(app: FastifyInstance, d: Deps): void {
     const b = (request.body ?? {}) as Record<string, unknown>;
     try {
       const file = parseBackup(b.file);
-      const opts = { mode: b.mode === "merge" ? "merge" as const : "replace" as const, passphrase: typeof b.passphrase === "string" ? b.passphrase : "", skipSecrets: Boolean(b.skipSecrets) };
+      const me = access.principal(request);
+      const opts = { mode: b.mode === "merge" ? "merge" as const : "replace" as const, passphrase: typeof b.passphrase === "string" ? b.passphrase : "", skipSecrets: Boolean(b.skipSecrets), restoreAccounts: Boolean(b.restoreAccounts), actorId: me?.kind === "user" ? me.user.id : "" };
       if (b.dryRun) return { preview: previewBackup(d, file, opts) };
       if (opts.passphrase && !throttleHit(db, "importpass", 10, 300_000)) return reply.code(429).send({ error: "Too many tries. Wait a few minutes." });
       return { result: await applyBackup(d, file, opts, access.actor(request)) };
@@ -153,6 +157,8 @@ export function adminRoutes(app: FastifyInstance, d: Deps): void {
   app.post("/api/backup/snapshots", admin, async (request, reply) => {
     try {
       const made = backups.create("manual");
+      const report = backups.verify(made.name);
+      if (!report.ok) logEvent(db, "error", "backup", `A manual backup copy was saved but the check found a problem: ${report.summary}`);
       backups.prune(getSettings(db).backupKeep);
       logEvent(db, "info", "backup", `${access.actor(request)} saved a backup copy of the database (${Math.max(1, Math.round(made.size / 1024))} KB)`);
       return made;

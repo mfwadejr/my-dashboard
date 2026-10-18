@@ -19,7 +19,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist dist
-RUN mkdir -p /data && chown node:node /data
+# smbclient lets Homebase copy backups to an SMB/Windows share (SMB 3 signing and encryption included)
+RUN apk add --no-cache samba-client && mkdir -p /data && chown node:node /data
 USER node
 VOLUME /data
 EXPOSE 3000 3001

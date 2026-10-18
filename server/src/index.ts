@@ -8,6 +8,9 @@ import { pathToFileURL } from "node:url";
 import { Access } from "./access.js";
 import { claimFirstAdmin, isSetUp } from "./auth.js";
 import { AutoBackup } from "./backup.js";
+import { Destinations } from "./destinations.js";
+import { backupOpsRoutes } from "./routes/backupops.js";
+import { rmSync } from "node:fs";
 import { installMainGate } from "./gate.js";
 import { buildPublicApp } from "./public.js";
 import { Shares } from "./shares.js";
@@ -46,8 +49,10 @@ export async function buildApp(config: Config) {
   const shares = new Shares(db, box);
   const access = new Access(db, shares);
   const version = versionInfo();
-  const deps: Deps = { config, db, box, store, hub, poller, go2rtc, shares, access, backups: undefined as unknown as AutoBackup };
+  const destinations = new Destinations(db, box);
+  const deps: Deps = { config, db, box, store, hub, poller, go2rtc, shares, access, destinations, restart: () => {}, backups: undefined as unknown as AutoBackup };
   deps.backups = new AutoBackup(() => deps, config.dataDir);
+  try { rmSync(deps.backups.tmp, { recursive: true, force: true }); } catch { /* leftovers from an interrupted upload */ }
   const requireAuth = access.requireAdmin;
 
   seedIfEmpty(db);
@@ -83,6 +88,7 @@ export async function buildApp(config: Config) {
   shareOpenRoutes(app, deps, false);
   shareAdminRoutes(app, deps);
   adminRoutes(app, deps);
+  backupOpsRoutes(app, deps);
   dashboardRoutes(app, deps);
   integrationRoutes(app, db, store, poller, hub, requireAuth, live, access, version.build);
   iconRoutes(app, icons, requireAuth);
@@ -108,7 +114,11 @@ export async function buildApp(config: Config) {
 const entry = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
 if (import.meta.url === entry) {
   const config = loadConfig();
-  const { app, publicApp } = await buildApp(config);
+  let built: Awaited<ReturnType<typeof buildApp>>;
+  try { built = await buildApp(config); }
+  catch (error) { console.error(`Homebase cannot start: ${error instanceof Error ? error.message : error}`); process.exit(1); }
+  const { app, publicApp, deps } = built;
+  deps.restart = () => { void app.close().finally(() => process.exit(75)); };
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => void app.close().then(() => process.exit(0)));
   await app.listen({ port: config.port, host: config.host });
   if (publicApp) await publicApp.listen({ port: config.publicPort!, host: config.host });

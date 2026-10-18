@@ -1,13 +1,14 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { MASK, maskUrlSecret } from "./crypto.js";
 import { ValidationError, readDashboard, validateDashboard, writeDashboard, type TabDoc } from "./dashboard.js";
-import { logEvent, tx } from "./db.js";
+import { getMeta, logEvent, setMeta, snapshotInto, tx } from "./db.js";
 import { INTEGRATION_TYPES } from "./integrations/registry.js";
 import { normalizeUrl } from "./integrations/http.js";
 import { DEFAULTS, getSettings, updateSettings } from "./settings.js";
 import { versionInfo } from "./version.js";
+import { finish, verifyDatabaseFile, type Check, type VerifyReport } from "./verify.js";
 import type { Deps } from "./deps.js";
 
 export const BACKUP_FORMAT = "homebase-backup";
@@ -19,11 +20,14 @@ interface BackupCamera { id: string; name: string; main: string; sub: string }
 export interface BackupFile {
   format: typeof BACKUP_FORMAT; formatVersion: number; app: { version: string; commit: string }; createdAt: string;
   settings: Record<string, unknown>; dashboard: { tabs: TabDoc[] }; integrations: BackupIntegration[]; cameras: BackupCamera[]; secrets: SecretsBlob | null;
+  /** True when the protected section also carries the accounts (names, roles and password hashes). */
+  accountsIncluded?: boolean;
 }
-interface SecretsPlain { integrations: Record<string, string>; cameras: Record<string, { main: string; sub: string }> }
+type AccountRow = Record<string, string | number | null>;
+interface SecretsPlain { integrations: Record<string, string>; cameras: Record<string, { main: string; sub: string }>; accounts?: AccountRow[] }
 
 const keyOf = (pass: string, salt: Buffer) => scryptSync(pass, salt, 32);
-function sealSecrets(pass: string, plain: SecretsPlain): SecretsBlob {
+export function sealSecrets(pass: string, plain: SecretsPlain): SecretsBlob {
   const salt = randomBytes(16), iv = randomBytes(12);
   const c = createCipheriv("aes-256-gcm", keyOf(pass, salt), iv);
   const data = Buffer.concat([c.update(JSON.stringify(plain), "utf8"), c.final()]);
@@ -37,7 +41,8 @@ function openSecrets(pass: string, blob: SecretsBlob): SecretsPlain {
   } catch { throw new ValidationError("That passphrase does not open this backup"); }
 }
 
-export function exportBackup(deps: Deps, passphrase: string): BackupFile {
+export function exportBackup(deps: Deps, passphrase: string, opts: { accounts?: boolean } = {}): BackupFile {
+  if (opts.accounts && !passphrase) throw new ValidationError("Accounts can only be included together with a passphrase, because they contain password hashes");
   const { db, store } = deps;
   const secrets: SecretsPlain = { integrations: {}, cameras: {} };
   const integrations: BackupIntegration[] = store.listIntegrations().map(r => {
@@ -51,8 +56,10 @@ export function exportBackup(deps: Deps, passphrase: string): BackupFile {
     secrets.cameras[id] = { main: cam.main, sub: cam.sub };
     cameras.push({ id, name: cam.name, main: maskUrlSecret(cam.main), sub: maskUrlSecret(cam.sub) });
   }
+  if (opts.accounts) secrets.accounts = db.prepare("SELECT * FROM users ORDER BY created_at").all() as unknown as AccountRow[];
   const v = versionInfo();
   return {
+    accountsIncluded: Boolean(opts.accounts),
     format: BACKUP_FORMAT, formatVersion: FORMAT_VERSION, app: { version: v.version, commit: v.commit }, createdAt: new Date().toISOString(),
     settings: { ...getSettings(db) }, dashboard: { tabs: readDashboard(db).tabs }, integrations, cameras,
     secrets: passphrase ? sealSecrets(passphrase, secrets) : null
@@ -80,11 +87,12 @@ export function parseBackup(raw: unknown): BackupFile {
   if (s && !(typeof s.salt === "string" && typeof s.iv === "string" && typeof s.tag === "string" && typeof s.data === "string")) throw new ValidationError("The protected section of the file is damaged");
   return {
     format: BACKUP_FORMAT, formatVersion: f.formatVersion, app: { version: String(f.app?.version ?? "?"), commit: String(f.app?.commit ?? "?") }, createdAt: String(f.createdAt ?? ""),
-    settings: f.settings && typeof f.settings === "object" ? f.settings : {}, dashboard: dash, integrations, cameras, secrets: s ?? null
+    settings: f.settings && typeof f.settings === "object" ? f.settings : {}, dashboard: dash, integrations, cameras, secrets: s ?? null,
+    accountsIncluded: Boolean(f.accountsIncluded && s)
   };
 }
 
-export interface ImportOptions { mode: "replace" | "merge"; passphrase?: string; skipSecrets?: boolean }
+export interface ImportOptions { mode: "replace" | "merge"; passphrase?: string; skipSecrets?: boolean; restoreAccounts?: boolean; actorId?: string }
 
 /** What an import would do, without changing anything. */
 export function previewBackup(deps: Deps, file: BackupFile, opts: ImportOptions) {
@@ -94,7 +102,13 @@ export function previewBackup(deps: Deps, file: BackupFile, opts: ImportOptions)
   let passphraseOk: boolean | null = null;
   if (file.secrets && opts.passphrase) { try { openSecrets(opts.passphrase, file.secrets); passphraseOk = true; } catch { passphraseOk = false; } }
   const replace = opts.mode === "replace";
+  let accounts: { included: boolean; count: number | null; youWillBeSignedOut: boolean } = { included: Boolean(file.accountsIncluded), count: null, youWillBeSignedOut: false };
+  if (file.accountsIncluded && file.secrets && passphraseOk) {
+    const rows = openSecrets(opts.passphrase!, file.secrets).accounts ?? [];
+    accounts = { included: true, count: rows.length, youWillBeSignedOut: Boolean(opts.restoreAccounts && replace) };
+  }
   return {
+    accounts,
     createdAt: file.createdAt, app: file.app, encrypted: Boolean(file.secrets), passphraseOk,
     tabs: file.dashboard.tabs.length, groups, tiles, integrations: file.integrations.length, cameras: file.cameras.length,
     adds: {
@@ -114,7 +128,12 @@ export async function applyBackup(deps: Deps, file: BackupFile, opts: ImportOpti
     secrets = openSecrets(opts.passphrase, file.secrets);
   }
   const replace = opts.mode === "replace";
-  if (replace) { try { deps.backups.create("before-import"); } catch { /* keep going: the import itself is validated already */ } }
+  let accountRows: AccountRow[] | null = null;
+  if (opts.restoreAccounts) {
+    if (!file.accountsIncluded || !secrets.accounts) throw new ValidationError("This file does not contain accounts");
+    accountRows = checkAccounts(secrets.accounts, replace);
+  }
+  if (replace || accountRows) { try { deps.backups.create("before-import"); } catch { /* keep going: the import itself is validated already */ } }
 
   const oldInt = store.listIntegrations().map(i => i.id), oldCam = store.listCameras().map(c => c.id);
   const needsSecrets: string[] = [];
@@ -153,6 +172,9 @@ export async function applyBackup(deps: Deps, file: BackupFile, opts: ImportOpti
   }
   if (replace || added.tabs) writeDashboard(db, validateDashboard({ tabs }), current.revision);
 
+  let accountsResult: { added: number; removed: number; signedOut: boolean } | null = null;
+  if (accountRows) accountsResult = applyAccounts(deps, accountRows, replace, opts.actorId ?? "");
+
   const known: Record<string, unknown> = {}, defaults = DEFAULTS() as unknown as Record<string, unknown>;
   if (replace) for (const k of Object.keys(file.settings)) if (k in defaults) known[k] = file.settings[k];
   try { updateSettings(db, known); } catch { /* a bad value in the file leaves the current settings alone */ }
@@ -164,7 +186,89 @@ export async function applyBackup(deps: Deps, file: BackupFile, opts: ImportOpti
   for (const id of new Set([...oldInt, ...intIds])) poller.reload(id);
   await go2rtc.reconcile().catch(() => {});
   logEvent(db, "info", "backup", `${actor} imported a backup (${opts.mode}): ${added.tabs} tab(s), ${added.integrations} connection(s), ${added.cameras} camera(s) added${needsSecrets.length ? `; ${needsSecrets.length} still need a password or key` : ""}`);
-  return { mode: opts.mode, added, skipped, needsSecrets };
+  if (accountsResult) logEvent(db, "warn", "security", `${actor} restored accounts from a backup (${opts.mode}): ${accountsResult.added} added, ${accountsResult.removed} removed`);
+  return { mode: opts.mode, added, skipped, needsSecrets, accounts: accountsResult };
+}
+
+const ROLE = new Set(["admin", "viewer"]);
+/** Checks the accounts in a file before anything is changed. */
+function checkAccounts(rows: unknown, replace: boolean): AccountRow[] {
+  if (!Array.isArray(rows)) throw new ValidationError("The accounts in the file are damaged");
+  const ids = new Set<string>(), names = new Set<string>();
+  const out = rows.map((r: any): AccountRow => {
+    const id = String(r?.id ?? ""), username = String(r?.username ?? "").trim();
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id) || username.length < 1 || username.length > 60 || !ROLE.has(String(r?.role)) || typeof r?.pass_hash !== "string" || !r.pass_hash) throw new ValidationError("An account in the file is damaged");
+    if (ids.has(id) || names.has(username.toLowerCase())) throw new ValidationError("The file lists the same account twice");
+    ids.add(id); names.add(username.toLowerCase());
+    return { ...r, id, username } as AccountRow;
+  });
+  if (replace && !out.some(r => r.role === "admin" && !r.disabled)) throw new ValidationError("The accounts in the file have no active administrator, so nobody could sign in afterwards");
+  return out;
+}
+
+/** Puts the file's accounts in place. Columns are copied generically so later account features (two-factor, etc.) come along. */
+function applyAccounts(deps: Deps, rows: AccountRow[], replace: boolean, actorId: string) {
+  const { db } = deps;
+  const cols = (db.prepare("PRAGMA table_info(users)").all() as unknown as Array<{ name: string }>).map(c => c.name);
+  let added = 0, removed = 0, signedOut = false;
+  tx(db, () => {
+    const have = db.prepare("SELECT id, username FROM users").all() as unknown as Array<{ id: string; username: string }>;
+    if (replace) {
+      const keep = new Set(rows.map(r => r.id as string));
+      for (const u of have.filter(x => !keep.has(x.id))) {
+        db.prepare("DELETE FROM sessions WHERE user_id = ?").run(u.id);
+        db.prepare("DELETE FROM users WHERE id = ?").run(u.id); removed++;
+        if (u.id === actorId) signedOut = true;
+      }
+    }
+    const ids = new Set(have.map(u => u.id)), names = new Set(have.map(u => u.username.toLowerCase()));
+    for (const r of rows) {
+      const use = cols.filter(c => c in r);
+      const vals = use.map(c => r[c] as string | number | null);
+      if (replace && ids.has(r.id as string)) {
+        const set = use.filter(c => c !== "id");
+        db.prepare(`UPDATE users SET ${set.map(c => `${c} = ?`).join(", ")} WHERE id = ?`).run(...set.map(c => r[c] as string | number | null), r.id as string);
+        db.prepare("DELETE FROM sessions WHERE user_id = ?").run(r.id as string); // sign-ins made before the restore must not outlive a changed password
+        if (r.id === actorId) signedOut = true;
+      } else if (!ids.has(r.id as string) && !names.has(String(r.username).toLowerCase())) {
+        db.prepare(`INSERT INTO users (${use.join(", ")}) VALUES (${use.map(() => "?").join(", ")})`).run(...vals); added++;
+      }
+    }
+  });
+  return { added, removed, signedOut };
+}
+
+// ---- checking a JSON backup file without importing it
+
+export function verifyJsonBackup(deps: Deps, raw: unknown, passphrase: string, size: number): VerifyReport {
+  const checks: Check[] = [], counts: Record<string, number> = {};
+  const add = (id: string, label: string, status: Check["status"], detail: string) => checks.push({ id, label, status, detail });
+  let file: BackupFile;
+  try { file = parseBackup(raw); add("structure", "File structure", "pass", `A Homebase backup (format ${file.formatVersion}) made by version ${file.app.version}. Every tab, tile and connection in it is valid.`); }
+  catch (error) { add("structure", "File structure", "fail", error instanceof Error ? error.message : "The file could not be read"); return finish("json", checks, counts, size, null, null); }
+  const tiles = file.dashboard.tabs.reduce((n, t) => n + t.groups.reduce((m, g) => m + g.tiles.length, 0), 0);
+  Object.assign(counts, { tabs: file.dashboard.tabs.length, tiles, connections: file.integrations.length, cameras: file.cameras.length });
+  add("counts", "What it contains", "pass", `${counts.tabs} tab(s), ${tiles} tile(s), ${counts.connections} connection(s), ${counts.cameras} camera(s).`);
+  const created = Date.parse(file.createdAt);
+  if (file.secrets) {
+    if (!passphrase) add("secrets", "Saved passwords and keys", "warn", "This file is protected. Enter its passphrase to check that it opens.");
+    else {
+      try {
+        const plain = openSecrets(passphrase, file.secrets);
+        const keys = Object.keys(plain.integrations).length, cams = Object.keys(plain.cameras).length;
+        add("secrets", "Saved passwords and keys", "pass", `The passphrase opens the protected section: ${keys} API key(s) and ${cams} camera login(s).`);
+        const missing = file.integrations.filter(i => !plain.integrations[i.id]).length;
+        if (missing) add("keys", "Every connection has its key", "warn", `${missing} connection(s) have no saved key and will need one entered after restoring.`);
+        if (file.accountsIncluded) {
+          const rows = plain.accounts ?? [];
+          counts.accounts = rows.length;
+          try { checkAccounts(rows, true); add("accounts", "Accounts", "pass", `${rows.length} account(s) are included and at least one active administrator is among them.`); }
+          catch (e) { add("accounts", "Accounts", "fail", e instanceof Error ? e.message : "The accounts are damaged"); }
+        }
+      } catch (error) { add("secrets", "Saved passwords and keys", "fail", error instanceof Error ? error.message : "That passphrase does not open this backup"); }
+    }
+  } else add("secrets", "Saved passwords and keys", "warn", "No passwords or keys are inside this file (it was exported without a passphrase), so you would enter them again after restoring.");
+  return finish("json", checks, counts, size, Number.isFinite(created) ? created : null, null);
 }
 
 // ---- automatic SQLite snapshots
@@ -172,30 +276,90 @@ export async function applyBackup(deps: Deps, file: BackupFile, opts: ImportOpti
 const SNAP = /^homebase-\d{8}-\d{6}(-[a-z-]{1,20})?\.db$/;
 export const validSnapshotName = (n: string) => SNAP.test(n);
 
+// ---- schedule maths (all in the dashboard's time zone)
+
+function zonedParts(ts: number, tz: string) {
+  const f = new Intl.DateTimeFormat("en-CA", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const p: Record<string, number> = {};
+  for (const x of f.formatToParts(ts)) if (x.type !== "literal") p[x.type] = Number(x.value);
+  return p;
+}
+const offsetAt = (ts: number, tz: string) => { const p = zonedParts(ts, tz); return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(ts / 1000) * 1000; };
+function zonedToEpoch(y: number, mo: number, d: number, hh: number, mm: number, tz: string): number {
+  const guess = Date.UTC(y, mo - 1, d, hh, mm);
+  return guess - offsetAt(guess - offsetAt(guess, tz), tz);
+}
+/** The wall-clock time `hh:mm` on the day that is `days` away from `ts` (in time zone tz), as an epoch. */
+function slotOnDay(ts: number, days: number, hh: number, mm: number, tz: string): { at: number; weekday: number } {
+  const p = zonedParts(ts, tz), day = new Date(Date.UTC(p.year, p.month - 1, p.day + days));
+  return { at: zonedToEpoch(day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate(), hh, mm, tz), weekday: day.getUTCDay() };
+}
+export interface Schedule { backupEvery: "6h" | "daily" | "weekly"; backupTime: string; backupDay: number; timezone: string }
+/** The most recent moment a scheduled copy should have been made (at or before `now`). */
+export function lastSlot(now: number, s: Schedule): number {
+  const [hh, mm] = s.backupTime.split(":").map(Number);
+  for (let k = 0; k <= 8; k++) {
+    const c = slotOnDay(now, -k, hh, mm, s.timezone);
+    if (c.at <= now && (s.backupEvery !== "weekly" || c.weekday === s.backupDay)) return c.at;
+  }
+  return now;
+}
+/** When the next scheduled copy is due, given the newest automatic copy. */
+export function nextSlot(now: number, s: Schedule, newest: number | null): number {
+  if (!newest) return now;
+  if (s.backupEvery === "6h") return Math.max(now, newest + 6 * 3600_000);
+  const [hh, mm] = s.backupTime.split(":").map(Number);
+  for (let k = 0; k <= 8; k++) {
+    const c = slotOnDay(now, k, hh, mm, s.timezone);
+    if (c.at > now && c.at > newest && (s.backupEvery !== "weekly" || c.weekday === s.backupDay)) return c.at;
+  }
+  return now + 24 * 3600_000;
+}
+export function isDue(now: number, s: Schedule, newest: number | null): boolean {
+  if (!newest) return true;
+  if (s.backupEvery === "6h") return now - newest >= 6 * 3600_000;
+  return lastSlot(now, s) > newest;
+}
+
+export interface VerifyNote { ts: number; ok: boolean; summary: string }
+
 export class AutoBackup {
   private timer?: NodeJS.Timeout;
   private first?: NodeJS.Timeout;
+  private busy = false;
   readonly dir: string;
-  constructor(private deps: () => Deps, dataDir: string) { this.dir = join(dataDir, "backups"); }
+  readonly tmp: string;
+  constructor(private deps: () => Deps, dataDir: string) { this.dir = join(dataDir, "backups"); this.tmp = join(dataDir, "tmp"); }
 
-  list(): Array<{ name: string; size: number; ts: number; auto: boolean }> {
+  list(): Array<{ name: string; size: number; ts: number; auto: boolean; verified: VerifyNote | null }> {
     if (!existsSync(this.dir)) return [];
+    const notes = this.notes();
     return readdirSync(this.dir).filter(n => SNAP.test(n)).map(name => {
       const st = statSync(join(this.dir, name));
-      return { name, size: st.size, ts: st.mtimeMs, auto: !/-[a-z-]+\.db$/.test(name) };
+      return { name, size: st.size, ts: st.mtimeMs, auto: !/-[a-z-]+\.db$/.test(name), verified: notes[name] ?? null };
     }).sort((a, b) => b.ts - a.ts);
   }
 
+  private notes(): Record<string, VerifyNote> {
+    try { return JSON.parse(getMeta(this.deps().db, "backup_verify") ?? "{}"); } catch { return {}; }
+  }
+  private setNote(name: string, note: VerifyNote): void {
+    const have = new Set(existsSync(this.dir) ? readdirSync(this.dir) : []);
+    const all = Object.fromEntries(Object.entries(this.notes()).filter(([n]) => have.has(n)));
+    all[name] = note;
+    setMeta(this.deps().db, "backup_verify", JSON.stringify(all));
+  }
+
   /** A consistent copy of the whole database (VACUUM INTO is safe while the app is running). */
-  create(label = ""): { name: string; size: number } {
-    mkdirSync(this.dir, { recursive: true });
-    const d = new Date(), p = (n: number) => String(n).padStart(2, "0");
-    const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-    const base = `homebase-${stamp}${label ? `-${label}` : ""}`;
-    let name = `${base}.db`;
-    for (let n = 0; existsSync(join(this.dir, name)); n++) name = `${base}-${"abcdefghijklmnopqrstuvwxyz"[n % 26]}.db`;
-    this.deps().db.exec(`VACUUM INTO '${join(this.dir, name).replace(/'/g, "''")}'`);
-    return { name, size: statSync(join(this.dir, name)).size };
+  create(label = ""): { name: string; size: number } { return snapshotInto(this.deps().db, this.dir, label); }
+
+  /** Opens a copy on a temporary duplicate and reports every check. The result is remembered so the list can show it. */
+  verify(name: string): VerifyReport {
+    const d = this.deps();
+    const file = join(this.dir, name);
+    const report = verifyDatabaseFile(file, d.box, this.tmp);
+    this.setNote(name, { ts: Date.now(), ok: report.ok, summary: report.summary });
+    return report;
   }
 
   remove(name: string): boolean {
@@ -204,29 +368,43 @@ export class AutoBackup {
     return true;
   }
 
-  /** Keep the newest N automatic snapshots and the last 5 safety copies made before imports. */
+  /** Keep the newest N automatic snapshots and the last 5 safety copies made before imports and upgrades. */
   prune(keep: number): number {
-    const all = this.list(), doomed = [...all.filter(s => s.auto).slice(keep), ...all.filter(s => !s.auto).slice(5)];
+    const all = this.list(), doomed = [...all.filter(s => s.auto).slice(keep), ...all.filter(s => !s.auto).slice(8)];
     for (const s of doomed) this.remove(s.name);
     return doomed.length;
   }
 
-  tick(): void {
+  nextAt(): number | null {
     const { db } = this.deps();
     const s = getSettings(db);
+    if (!s.autoBackup) return null;
+    return nextSlot(Date.now(), s, this.list().find(x => x.auto)?.ts ?? null);
+  }
+
+  /** Makes a scheduled copy if one is due: verifies it, logs the outcome and sends it to network destinations. */
+  async tick(now = Date.now()): Promise<void> {
+    if (this.busy) return;
+    const d = this.deps(), { db } = d;
+    const s = getSettings(db);
     if (!s.autoBackup) return;
-    const newest = this.list().find(x => x.auto);
-    if (newest && Date.now() - newest.ts < 24 * 3600_000) return;
+    if (!isDue(now, s, this.list().find(x => x.auto)?.ts ?? null)) return;
+    this.busy = true;
     try {
       const made = this.create();
+      const report = this.verify(made.name);
       this.prune(s.backupKeep);
-      logEvent(db, "info", "backup", `Nightly backup saved (${Math.max(1, Math.round(made.size / 1024))} KB)`);
-    } catch (error) { logEvent(db, "error", "backup", `Nightly backup failed: ${error instanceof Error ? error.message : error}`); }
+      const kb = `${Math.max(1, Math.round(made.size / 1024))} KB`;
+      if (report.ok) logEvent(db, "info", "backup", `Scheduled backup saved and verified (${kb}): ${report.summary}`);
+      else logEvent(db, "error", "backup", `Scheduled backup saved (${kb}) but the check found a problem: ${report.summary}`);
+      await d.destinations.sendAll(join(this.dir, made.name), made.name);
+    } catch (error) { logEvent(db, "error", "backup", `Scheduled backup failed: ${error instanceof Error ? error.message : error}`); }
+    finally { this.busy = false; }
   }
 
   start(): void {
-    this.first = setTimeout(() => this.tick(), 60_000); this.first.unref();
-    this.timer = setInterval(() => this.tick(), 3600_000); this.timer.unref();
+    this.first = setTimeout(() => void this.tick(), 60_000); this.first.unref();
+    this.timer = setInterval(() => void this.tick(), 60_000); this.timer.unref();
   }
   stop(): void { if (this.timer) clearInterval(this.timer); if (this.first) clearTimeout(this.first); }
 }

@@ -14,6 +14,9 @@ export interface Settings {
   logDays: number;
   autoBackup: boolean;
   backupKeep: number;
+  backupEvery: "6h" | "daily" | "weekly";
+  backupTime: string;
+  backupDay: number;
 }
 
 export function defaultTimezone(): string {
@@ -22,7 +25,8 @@ export function defaultTimezone(): string {
 
 export const DEFAULTS = (): Settings => ({
   name: "Homebase", timezone: defaultTimezone(), clock: "auto", weekStart: "sun", publicBaseUrl: "",
-  theme: "dark", accent: "#6c8cff", kioskCycleSeconds: 0, metricsDays: 14, logDays: 30, autoBackup: true, backupKeep: 7
+  theme: "dark", accent: "#6c8cff", kioskCycleSeconds: 0, metricsDays: 14, logDays: 30, autoBackup: true, backupKeep: 7,
+  backupEvery: "daily", backupTime: "02:00", backupDay: 0
 });
 
 export function validTimezone(tz: string): boolean {
@@ -69,7 +73,10 @@ export function updateSettings(db: DB, input: Record<string, unknown>): { settin
       case "metricsDays": next.metricsDays = whole(value, 1, 365, "Metrics history"); break;
       case "logDays": next.logDays = whole(value, 1, 730, "Log history"); break;
       case "autoBackup": next.autoBackup = Boolean(value); break;
-      case "backupKeep": next.backupKeep = whole(value, 1, 60, "Backups to keep"); break;
+      case "backupKeep": next.backupKeep = whole(value, 1, 120, "Backups to keep"); break;
+      case "backupEvery": next.backupEvery = oneOf(value, ["6h", "daily", "weekly"], "Backup schedule"); break;
+      case "backupTime": { const t = String(value ?? ""); if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) throw new ValidationError("The backup time must look like 02:30"); next.backupTime = t; break; }
+      case "backupDay": next.backupDay = whole(value, 0, 6, "Backup day"); break;
       default: throw new ValidationError(`Unknown setting "${key}"`);
     }
   }

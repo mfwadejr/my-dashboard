@@ -6,7 +6,7 @@ const browserZone = (() => { try { return Intl.DateTimeFormat().resolvedOptions(
 
 export const DEFAULT_SETTINGS: SettingsDoc = {
   name: "Homebase", timezone: browserZone, clock: "auto", weekStart: "sun", publicBaseUrl: "", theme: "dark", accent: "#6c8cff",
-  kioskCycleSeconds: 0, metricsDays: 14, logDays: 30, autoBackup: true, backupKeep: 7
+  kioskCycleSeconds: 0, metricsDays: 14, logDays: 30, autoBackup: true, backupKeep: 7, backupEvery: "daily", backupTime: "02:00", backupDay: 0
 };
 
 interface Ctx { settings: SettingsDoc; reload: () => Promise<void> }

@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 export type DB = DatabaseSync;
@@ -77,16 +77,64 @@ const MIGRATIONS: string[] = [
   `
 ];
 
+/** Exposed for tests that need to build an older database. */
+export const _MIGRATIONS: readonly string[] = MIGRATIONS;
+
+/** The database layout number this version understands. */
+export const SCHEMA_VERSION = MIGRATIONS.length;
+
+const pad = (n: number) => String(n).padStart(2, "0");
+export const stampNow = (d = new Date()) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+
+/** A consistent copy of the whole database (VACUUM INTO is safe while the app is running). */
+export function snapshotInto(db: DB, dir: string, label = ""): { name: string; size: number } {
+  mkdirSync(dir, { recursive: true });
+  const base = `homebase-${stampNow()}${label ? `-${label}` : ""}`;
+  let name = `${base}.db`;
+  for (let n = 0; existsSync(join(dir, name)); n++) name = `${base}-${"abcdefghijklmnopqrstuvwxyz"[n % 26]}.db`;
+  db.exec(`VACUUM INTO '${join(dir, name).replace(/'/g, "''")}'`);
+  return { name, size: statSync(join(dir, name)).size };
+}
+
+export interface PendingRestore { from: string; by: string; at: number }
+
+/** If a restore was requested before the last shutdown, put the chosen copy in place now, while nothing has the database open. */
+export function applyPendingRestore(dataDir: string): PendingRestore | null {
+  const pending = join(dataDir, "restore-pending.db"), marker = join(dataDir, "restore-pending.json");
+  if (!existsSync(pending)) return null;
+  let info: PendingRestore = { from: "a database copy", by: "an administrator", at: Date.now() };
+  try { info = { ...info, ...JSON.parse(readFileSync(marker, "utf8")) }; } catch { /* the marker is only for the log */ }
+  const live = join(dataDir, "homebase.db");
+  for (const ext of ["-wal", "-shm"]) { try { unlinkSync(live + ext); } catch { /* not there */ } }
+  renameSync(pending, live);
+  try { unlinkSync(marker); } catch { /* already gone */ }
+  return info;
+}
+
 export function openDb(dataDir: string): DB {
   mkdirSync(dataDir, { recursive: true });
+  const restored = applyPendingRestore(dataDir);
   const db = new DatabaseSync(join(dataDir, "homebase.db"));
   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;");
+  db.exec("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)");
+  const current = Number(getMeta(db, "schema_version") ?? 0);
+  if (current > SCHEMA_VERSION) {
+    db.close();
+    throw new Error(`This data folder was written by a newer Homebase (database layout ${current}; this version understands up to ${SCHEMA_VERSION}). Nothing was changed. Update Homebase to the newer version, or restore an older database copy.`);
+  }
+  let upgradeCopy = "";
+  if (current > 0 && current < SCHEMA_VERSION) {
+    // An existing database is about to change shape: keep a copy first, and do not go on without one.
+    try { upgradeCopy = snapshotInto(db, join(dataDir, "backups"), "before-upgrade").name; }
+    catch (error) { db.close(); throw new Error(`Homebase needs to upgrade the database but could not save a safety copy first (${error instanceof Error ? error.message : error}). Nothing was changed.`); }
+  }
   migrate(db);
+  if (upgradeCopy) logEvent(db, "info", "system", `The database was upgraded from layout ${current} to ${SCHEMA_VERSION}. A safety copy was saved first as ${upgradeCopy}`);
+  if (restored) logEvent(db, "warn", "backup", `The database was restored from ${restored.from} (requested by ${restored.by})`);
   return db;
 }
 
 function migrate(db: DB): void {
-  db.exec("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)");
   const current = Number(getMeta(db, "schema_version") ?? 0);
   for (let i = current; i < MIGRATIONS.length; i++) {
     tx(db, () => {

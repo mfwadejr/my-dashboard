@@ -14,5 +14,9 @@ export interface SettingsDoc {
   name: string; timezone: string; clock: "auto" | "12" | "24"; weekStart: "sun" | "mon"; publicBaseUrl: string;
   theme: "dark" | "light" | "glass" | "auto"; accent: string; kioskCycleSeconds: number;
   metricsDays: number; logDays: number; autoBackup: boolean; backupKeep: number;
+  backupEvery: "6h" | "daily" | "weekly"; backupTime: string; backupDay: number;
 }
 export interface AboutInfo { version: string; commit: string; built: string | null; node: string; build: string; startedAt: number; publicPort: number | null; go2rtc: boolean }
+
+export interface VerifyCheck { id: string; label: string; status: "pass" | "warn" | "fail"; detail: string }
+export interface VerifyReport { kind: "database" | "json"; ok: boolean; restorable: boolean; checks: VerifyCheck[]; counts: Record<string, number>; size: number; createdAt: number | null; layout: number | null; summary: string }
