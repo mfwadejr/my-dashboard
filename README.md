@@ -61,3 +61,7 @@ Plex, Jellyfin, Seerr; UniFi UNAS drive details (needs the Test output from real
 ## Media calendar
 
 Add the "Media calendar" tile, tick your Sonarr and Radarr connections, and choose which Radarr release date to show (digital, cinema, physical or all). Filled dots mean downloaded; click a day for details. Posters are fetched through Homebase, so your app addresses and keys never reach the browser.
+
+## Moving tiles
+
+In edit mode, drag any tile and drop it where you want; it snaps to the grid and a dashed outline shows where it will land. Tiles in the way move down to make room. You can drag a tile into another group, press Esc to cancel, and drag the corner to resize. Each group has an **Auto-pack** switch: off keeps tiles exactly where you drop them (gaps allowed), on lets them float up to fill empty space. The arrange presets (2 per row and so on) are one-time buttons for camera tiles. Moving a tile yourself switches the group back to Free. On a phone the tiles stack in reading order.

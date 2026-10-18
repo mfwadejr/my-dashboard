@@ -1,5 +1,5 @@
-export interface Tile { id: string; type: string; w: number; h: number; config: Record<string, any> }
-export interface Group { id: string; name: string; layout: string; collapsed: boolean; tiles: Tile[] }
+export interface Tile { id: string; type: string; w: number; h: number; x?: number; y?: number; config: Record<string, any> }
+export interface Group { id: string; name: string; layout: string; collapsed: boolean; pack?: boolean; tiles: Tile[] }
 export interface Tab { id: string; name: string; emoji: string; groups: Group[] }
 export interface Dashboard { revision: number; tabs: Tab[] }
 

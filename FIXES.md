@@ -11,6 +11,7 @@ Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 - Verify against real hardware: Protect, Prowlarr, Site Gateway, Unraid, ZimaOS.
 
 ## Done
+- Tiles can be placed anywhere by dragging in edit mode: snap-to-grid with a landing outline, other tiles make room, drag between groups, per-group Auto-pack, Esc cancels, edge auto-scroll; the Arrange presets are one-time buttons and moving a tile switches the group back to Free.
 - Cameras: Test button (connects through go2rtc and shows a picture or a plain-language reason), snapshot mode (refreshed stills), a Camera wall tile (several cameras, stills or live), and import of cameras from a UniFi Protect connection.
 - Cameras: UniFi Protect secure links (rtsps://…:7441/…?enableSrtp) are converted to plain RTSP (port 7447) automatically, in the dialog and on the server.
 - Unraid: pick-and-order sections, CPU/RAM gauges and history, container and VM lists with start/stop/restart (signed in, asks first), parity check progress and last result, share usage.

@@ -34,8 +34,8 @@ main{padding:20px;max-width:1600px;margin:auto}
 .gtools select,.dlg select,.dlg input:not([type=checkbox]):not([type=file]),.launch-edit input,.launch-edit select{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:6px 9px;color:var(--text);outline:none}
 .gtools select{font-size:12px;padding:3px 6px}
 .grp.collapsed .grid{display:none}
-.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:84px;gap:var(--gap);grid-auto-flow:dense}
-.edit .grid{min-height:70px}
+.grid{--row:84px;display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:var(--row);gap:var(--gap)}
+.edit .grid{min-height:70px;background-image:radial-gradient(circle,color-mix(in srgb,var(--mute) 45%,transparent) 1.4px,transparent 1.6px);background-size:calc((100% + var(--gap)) / 12) calc(var(--row) + var(--gap));background-position:calc(var(--gap) / -2) calc(var(--gap) / -2)}
 .edit .grid.empty{border:1px dashed var(--line);border-radius:14px}
 .edit .grid.empty:after{content:"Drag tiles here, or use Add tile";color:var(--mute);grid-column:1/-1;grid-row:1;place-self:center}
 .tile{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;position:relative;overflow:hidden;display:flex;flex-direction:column;min-width:0;gap:8px}
@@ -43,9 +43,9 @@ main{padding:20px;max-width:1600px;margin:auto}
 .tile h4.sec{margin-top:4px}
 .w1{grid-column:span 2}.w2{grid-column:span 3}.w3{grid-column:span 4}.w4{grid-column:span 6}.w5{grid-column:span 8}.w6{grid-column:span 12}
 .h1{grid-row:span 1}.h2{grid-row:span 2}.h3{grid-row:span 3}.h4{grid-row:span 4}.h5{grid-row:span 5}.h6{grid-row:span 6}.h7{grid-row:span 7}.h8{grid-row:span 8}
-@media(max-width:900px){.grid{grid-template-columns:repeat(4,minmax(0,1fr))}.tile{grid-column:span 4}.top{padding:10px 12px}main{padding:12px}.search{order:5;max-width:none;width:100%;flex-basis:100%}}
+@media(max-width:900px){.grid{grid-template-columns:repeat(4,minmax(0,1fr));background-image:none}.tile{grid-column:span 4 !important;grid-row:span var(--h) !important}.ph{display:none}.top{padding:10px 12px}main{padding:12px}.search{order:5;max-width:none;width:100%;flex-basis:100%}}
 /* edit mode */
-.edit .tile{cursor:grab;outline:2px dashed color-mix(in srgb,var(--accent) 60%,transparent);outline-offset:-2px}
+.edit .tile{outline:2px dashed color-mix(in srgb,var(--accent) 60%,transparent);outline-offset:-2px}
 .edit .tile.drag{opacity:.35}
 .ctl{position:absolute;top:8px;right:8px;display:flex;gap:4px;z-index:5;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:3px}
 .ctl button{all:unset;cursor:pointer;padding:2px 7px;border-radius:7px;font-size:12px;color:var(--mute)}
@@ -182,3 +182,12 @@ dialog::backdrop{background:rgba(0,0,0,.55);backdrop-filter:blur(3px)}
 .cam-test{display:flex;flex-direction:column;gap:6px}
 .cam-test img{width:100%;max-width:320px;border-radius:10px;background:#000}
 .cam-test .ok{color:var(--ok)}.cam-test .bad{color:var(--warn)}
+
+/* free placement */
+.dragzone{position:absolute;inset:0;z-index:4;cursor:grab;touch-action:none}
+.tile.lifted{visibility:hidden}
+.ph{border:2px dashed var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);border-radius:var(--r);pointer-events:none;z-index:1}
+.ghost{position:fixed;left:0;top:0;z-index:3000;pointer-events:none;border:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 24%,var(--panel));border-radius:var(--r);display:grid;place-items:center;font-weight:600;font-size:13px;box-shadow:0 14px 34px #0009;opacity:.93}
+body.dragging{user-select:none;-webkit-user-select:none;cursor:grabbing}
+body.dragging *{cursor:grabbing !important}
+.gtools .chk{font-size:12px;color:var(--mute)}

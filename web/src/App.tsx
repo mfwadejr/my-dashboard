@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { api, uid } from "./api";
 import { useAuth, useCameras, useDashboard, useIntegrations, useLive, usePref } from "./hooks";
-import { applyLayout, moveTile } from "./layout";
+import { applyLayout } from "./layout";
+import { ROW_H, GRID_COLS, rowsUsed, clampCol, normalizeGroup, normalizeTab, placeTile, reflow, resizeTile, settle, spanOf } from "./grid";
 import type { Group, Tab, Tile } from "./types";
 import { WIDGET_BY_TYPE } from "./widgets";
-import { GroupView } from "./components/GroupView";
+import { GroupView, type Placeholder } from "./components/GroupView";
 import { Lightbox } from "./components/Lightbox";
 import { CameraPick } from "./components/CameraPick";
 import { AuthDialog } from "./dialogs/AuthDialog";
@@ -15,6 +16,7 @@ import { IntegrationsDialog } from "./dialogs/IntegrationsDialog";
 import { TabDialog } from "./dialogs/TabDialog";
 import { TileSettings } from "./dialogs/TileSettings";
 
+interface DragState { tileId: string; fromGroup: string; w: number; h: number; grabX: number; grabY: number; label: string; over: string | null; x: number; y: number; frozen: Record<string, number> }
 const ACCENTS = ["#6c8cff", "#3ecf8e", "#f5a524", "#f0616d", "#c04bff", "#35c5f4"];
 const newGroup = (name: string, layout = "free"): Group => ({ id: uid(), name, layout, collapsed: false, tiles: [] });
 const cloneTab = (tab: Tab, name: string): Tab => ({ ...tab, id: uid(), name, groups: tab.groups.map(g => ({ ...g, id: uid(), tiles: g.tiles.map(t => ({ ...t, id: uid(), config: JSON.parse(JSON.stringify(t.config)) })) })) });
@@ -30,7 +32,9 @@ export function App() {
   const [tabId, setTabId] = usePref<string>("hb_tab", "");
   const [editing, setEditing] = useState(false);
   const [query, setQuery] = useState("");
-  const [dragId, setDragId] = useState<string | null>(null);
+  const [drag, setDrag] = useState<DragState | null>(null);
+  const ghost = useRef<HTMLDivElement>(null);
+  const ghostPos = useRef({ x: 0, y: 0 });
   const [dlg, setDlg] = useState<
     | { kind: "auth" } | { kind: "connections" } | { kind: "tab"; edit: boolean }
     | { kind: "settings"; tileId: string; v: number } | { kind: "icon"; tileId: string; itemId: string }
@@ -53,10 +57,12 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const tab = useMemo(() => doc?.tabs.find(t => t.id === tabId) ?? doc?.tabs[0], [doc, tabId]);
+  const rawTab = useMemo(() => doc?.tabs.find(t => t.id === tabId) ?? doc?.tabs[0], [doc, tabId]);
+  // Every tile gets a spot (old dashboards are laid out the way they looked); nothing is saved until you change something.
+  const tab = useMemo(() => (rawTab ? normalizeTab(rawTab) : rawTab), [rawTab]);
 
   // ---- editing helpers (all go through `update`, which saves in the background)
-  const editTab = (fn: (tab: Tab) => Tab) => update(tabs => tabs.map(t => (t.id === tab?.id ? fn(t) : t)));
+  const editTab = (fn: (tab: Tab) => Tab) => update(tabs => tabs.map(t => (t.id === tab?.id ? fn(normalizeTab(t)) : t)));
   const editGroup = (gid: string, fn: (g: Group) => Group) => editTab(t => ({ ...t, groups: t.groups.map(g => (g.id === gid ? fn(g) : g)) }));
   const editTile = (tid: string, fn: (t: Tile) => Tile) => editTab(t => ({ ...t, groups: t.groups.map(g => ({ ...g, tiles: g.tiles.map(x => (x.id === tid ? fn(x) : x)) })) }));
   const findTile = (tid: string) => tab?.groups.flatMap(g => g.tiles).find(t => t.id === tid);
@@ -74,14 +80,19 @@ export function App() {
   };
   /** Several cameras arrived from a single camera tile: turn it into a wall, or give each camera its own tile. */
   const makeWall = (tid: string, ids: string[]) => {
-    editTile(tid, t => ({ ...t, type: "camerawall", w: Math.max(t.w, 6), h: Math.max(t.h, 5), config: { cameraIds: [...new Set([...(t.config.cameraId ? [String(t.config.cameraId)] : []), ...ids])], mode: "snapshot", refresh: 10 } }));
+    editTab(t => ({ ...t, groups: t.groups.map(g => {
+      const tile = g.tiles.find(x => x.id === tid);
+      if (!tile) return g;
+      const grown = resizeTile(g, tid, Math.max(tile.w, 6), Math.max(tile.h, 5));
+      return { ...grown, tiles: grown.tiles.map(x => (x.id === tid ? { ...x, type: "camerawall", config: { cameraIds: [...new Set([...(tile.config.cameraId ? [String(tile.config.cameraId)] : []), ...ids])], mode: "snapshot", refresh: 10 } } : x)) };
+    }) }));
     setDlg(null);
   };
   const splitTiles = (tid: string, ids: string[]) => {
     const g = tab?.groups.find(x => x.tiles.some(y => y.id === tid));
     if (!g) return setDlg(null);
     const size = WIDGET_BY_TYPE.camera.size;
-    editGroup(g.id, grp => applyLayout({ ...grp, tiles: [
+    editGroup(g.id, grp => afterChange({ ...grp, tiles: [
       ...grp.tiles.map(x => (x.id === tid ? { ...x, config: { ...x.config, cameraId: ids[0] } } : x)),
       ...ids.slice(1).map(id => ({ id: uid(), type: "camera", w: size[0], h: size[1], config: { cameraId: id } }))
     ] }));
@@ -91,17 +102,102 @@ export function App() {
   const addTile = (gid: string, type: string) => {
     const def = WIDGET_BY_TYPE[type]; if (!def) return;
     const tile: Tile = { id: uid(), type, w: def.size[0], h: def.size[1], config: {} };
-    editGroup(gid, g => applyLayout({ ...g, tiles: [...g.tiles, tile] }));
+    editGroup(gid, g => afterChange({ ...g, tiles: [...g.tiles, tile] }));
     if (type === "camera") setDlg({ kind: "camPick", tileId: tile.id });
     else if (def.needs || type === "launcher") setDlg({ kind: "settings", tileId: tile.id, v: 0 });
   };
-  const removeTile = (tid: string) => editTab(t => ({ ...t, groups: t.groups.map(g => applyLayout({ ...g, tiles: g.tiles.filter(x => x.id !== tid) })) }));
-  const dropOn = (gid: string, before: string | null) => {
-    if (!dragId) return;
-    const id = dragId; setDragId(null);
-    if (id === before) return;
-    editTab(t => ({ ...t, groups: moveTile(t.groups, id, gid, before).map(g => applyLayout(g)) }));
+  /** After tiles are added or removed: preset groups re-flow into their pattern, free groups just place any new tile in the first free spot. */
+  const afterChange = (g: Group): Group => (g.layout === "free" ? normalizeGroup(g) : reflow(applyLayout(g)));
+  const removeTile = (tid: string) => editTab(t => ({ ...t, groups: t.groups.map(g => (g.tiles.some(x => x.id === tid) ? afterChange({ ...g, tiles: g.tiles.filter(x => x.id !== tid) }) : g)) }));
+
+  // ---- dragging a tile anywhere in a group, or into another group
+  const beginDrag = (tile: Tile, groupId: string, e: RPointerEvent<HTMLElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const el = (e.currentTarget as HTMLElement).closest<HTMLElement>(".tile");
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const label = WIDGET_BY_TYPE[tile.type]?.label ?? "Tile";
+    // Each group keeps the height it had when the drag began (plus two spare rows), so the page does not jump under the pointer.
+    const frozen = Object.fromEntries((tab?.groups ?? []).map(g => [g.id, rowsUsed(g.tiles) + 2]));
+    const base = { tileId: tile.id, fromGroup: groupId, w: r.width, h: r.height, grabX: e.clientX - r.left, grabY: e.clientY - r.top, label, frozen };
+    const startX = e.clientX, startY = e.clientY, cw = spanOf(tile);
+    let active = false, scroller = 0;
+    let cur = { over: groupId as string | null, x: tile.x ?? 0, y: tile.y ?? 0 };
+    let pointer = { x: startX, y: startY };
+
+    const aim = () => {
+      ghostPos.current = { x: pointer.x - base.grabX, y: pointer.y - base.grabY };
+      if (ghost.current) ghost.current.style.transform = `translate(${ghostPos.current.x}px, ${ghostPos.current.y}px)`;
+      const grid = document.elementsFromPoint(pointer.x, pointer.y).find((n): n is HTMLElement => n instanceof HTMLElement && Boolean(n.dataset.grid));
+      if (!grid) return;
+      const gap = parseFloat(getComputedStyle(grid).columnGap) || 14;
+      const box = grid.getBoundingClientRect();
+      const step = (box.width - gap * (GRID_COLS - 1)) / GRID_COLS + gap;
+      const next = {
+        over: grid.dataset.grid!,
+        x: clampCol((pointer.x - base.grabX - box.left) / step, cw),
+        y: Math.max(0, Math.round((pointer.y - base.grabY - box.top) / (ROW_H + gap)))
+      };
+      next.y = Math.min(next.y, Math.max(0, (base.frozen[next.over] ?? 99) - tile.h));
+      if (next.over !== cur.over || next.x !== cur.x || next.y !== cur.y) { cur = next; setDrag(d => (d ? { ...d, ...cur } : d)); }
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel); window.removeEventListener("keydown", key);
+      window.clearInterval(scroller); document.body.classList.remove("dragging"); setDrag(null);
+    };
+    const move = (ev: PointerEvent) => {
+      pointer = { x: ev.clientX, y: ev.clientY };
+      if (!active) {
+        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 5) return;
+        active = true;
+        ghostPos.current = { x: ev.clientX - base.grabX, y: ev.clientY - base.grabY };
+        setDrag({ ...base, ...cur });
+        document.body.classList.add("dragging");
+        // Scrolls the page when the pointer is near the top or bottom edge, so a tile can be carried a long way.
+        scroller = window.setInterval(() => {
+          if (pointer.y < 80) window.scrollBy(0, -Math.ceil((80 - pointer.y) / 4));
+          else if (pointer.y > window.innerHeight - 80) window.scrollBy(0, Math.ceil((pointer.y - (window.innerHeight - 80)) / 4));
+          aim();
+        }, 30);
+      }
+      aim();
+    };
+    const up = () => { const place = cur; const was = active; stop(); if (was && place.over) commitMove(tile.id, place.over, place.x, place.y); };
+    const cancel = () => stop();
+    const key = (ev: KeyboardEvent) => { if (ev.key === "Escape") stop(); };
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel); window.addEventListener("keydown", key);
   };
+  const commitMove = (tileId: string, toGroup: string, x: number, y: number) => editTab(t => {
+    const moving = t.groups.flatMap(g => g.tiles).find(x2 => x2.id === tileId);
+    if (!moving) return t;
+    return { ...t, groups: t.groups.map(g => {
+      if (g.id === toGroup) return placeTile(g, moving, x, y);
+      if (g.tiles.some(x2 => x2.id === tileId)) return afterChange({ ...g, tiles: g.tiles.filter(x2 => x2.id !== tileId) });
+      return g;
+    }) };
+  });
+  /** What each group looks like right now while a tile is being dragged: the others make room around the landing spot. */
+  const dragView = useMemo(() => {
+    if (!drag || !tab) return null;
+    const moving = tab.groups.flatMap(g => g.tiles).find(x => x.id === drag.tileId);
+    if (!moving) return null;
+    const out: Record<string, { tiles: Tile[]; ph: Placeholder | null }> = {};
+    for (const g of tab.groups) {
+      const others = g.tiles.filter(x => x.id !== drag.tileId);
+      const hasIt = others.length !== g.tiles.length;
+      if (g.id === drag.over) {
+        const cw = spanOf(moving);
+        const settled = settle(others, { id: moving.id, x: drag.x, y: drag.y, cw, h: moving.h }, Boolean(g.pack));
+        out[g.id] = { tiles: g.tiles.map(x => (x.id === moving.id ? x : settled.find(o => o.id === x.id)!)), ph: { x: drag.x, y: drag.y, cw, h: moving.h } };
+      } else if (hasIt) {
+        const settled = settle(others, null, Boolean(g.pack));
+        out[g.id] = { tiles: g.tiles.map(x => (x.id === moving.id ? x : settled.find(o => o.id === x.id)!)), ph: null };
+      }
+    }
+    return out;
+  }, [drag, tab]);
 
   const saveTab = (v: { name: string; emoji: string; template: "blank" | "cameras" | "copy" }) => {
     if (dlg?.kind !== "tab") return;
@@ -125,8 +221,7 @@ export function App() {
     editing, authed: auth.authed, snapshots, integrations, cameras, query,
     openCamera: (cameraId: string) => setDlg({ kind: "lightbox", cameraId }),
     refreshIntegrations,
-    onDragStart: setDragId, onDragEnd: () => setDragId(null),
-    onResize: (id: string, w: number, h: number) => editTile(id, t => ({ ...t, w, h })),
+    onResize: (id: string, w: number, h: number) => editTab(t => ({ ...t, groups: t.groups.map(g => (g.tiles.some(x => x.id === id) ? resizeTile(g, id, w, h) : g)) })),
     onRemove: removeTile,
     onConfig: setConfig,
     onSettings: (t: Tile) => setDlg(t.type === "camera" ? { kind: "camPick", tileId: t.id } : { kind: "settings", tileId: t.id, v: 0 })
@@ -165,19 +260,22 @@ export function App() {
       {save === "error" && <div className="banner">Could not save: {saveError} <button className="btn sm" onClick={() => void retry()}>Try again</button></div>}
 
       <main className={editing ? "edit" : ""}>
-        {editing && <div className="savestate sub">{save === "saving" ? "Saving…" : save === "saved" ? "All changes saved" : "Drag tiles to move them. Drag the corner handle to resize."}</div>}
+        {editing && <div className="savestate sub">{save === "saving" ? "Saving…" : save === "saved" ? "All changes saved" : "Drag a tile anywhere to move it, or into another group. Drag the corner to resize. Esc cancels a drag."}</div>}
         {tab.groups.map(group => (
-          <GroupView key={group.id} group={group} editing={editing} dragId={dragId} shared={shared} canDelete={tab.groups.length > 1}
+          <GroupView key={group.id} group={group} tiles={dragView?.[group.id]?.tiles ?? group.tiles} placeholder={dragView?.[group.id]?.ph ?? null}
+            liftedId={drag && drag.fromGroup === group.id ? drag.tileId : null} minRows={drag?.frozen[group.id] ?? 0} editing={editing} shared={shared} canDelete={tab.groups.length > 1}
             onRename={name => editGroup(group.id, g => ({ ...g, name }))}
-            onLayout={layout => editGroup(group.id, g => applyLayout({ ...g, layout }))}
+            onLayout={layout => editGroup(group.id, g => (layout === "free" ? { ...g, layout } : reflow(applyLayout({ ...g, layout }))))}
+            onPack={on => editGroup(group.id, g => normalizeGroup({ ...g, pack: on }))}
             onToggle={() => editGroup(group.id, g => ({ ...g, collapsed: !g.collapsed }))}
             onDelete={() => editTab(t => ({ ...t, groups: t.groups.filter(g => g.id !== group.id) }))}
             onAddTile={type => addTile(group.id, type)}
-            onDropIn={dropOn} />
+            onGrab={beginDrag} />
         ))}
         {editing && <button className="btn" onClick={() => editTab(t => ({ ...t, groups: [...t.groups, newGroup("New group")] }))}>＋ Add group</button>}
       </main>
 
+      {drag && <div ref={ghost} className="ghost" style={{ width: drag.w, height: drag.h, transform: `translate(${ghostPos.current.x}px, ${ghostPos.current.y}px)` }}>{drag.label}</div>}
       {dlg?.kind === "auth" && <AuthDialog setup={!auth.setup} onClose={() => setDlg(null)} onDone={() => { setDlg(null); void refreshAuth(); }} />}
       {dlg?.kind === "connections" && <IntegrationsDialog integrations={integrations} onChanged={refreshIntegrations} onClose={() => setDlg(null)} />}
       {dlg?.kind === "tab" && <TabDialog tab={dlg.edit ? tab : undefined} canDelete={doc.tabs.length > 1} onSave={saveTab} onDelete={deleteTab} onClose={() => setDlg(null)} />}

@@ -4,8 +4,8 @@ import { getMeta, setMeta, tx, type DB } from "./db.js";
 export const TILE_TYPES = ["clock", "notes", "launcher", "sonarr", "radarr", "sabnzbd", "camera", "camerawall", "prowlarr", "sitegateway", "unifi-network", "unifi-protect", "unifi-pdu","unifi-unas","mediacalendar", "unraid", "zimaos"] as const;
 export const GROUP_LAYOUTS = ["free", "grid2", "grid3", "grid4", "spot", "row"] as const;
 
-export interface TileDoc { id: string; type: string; w: number; h: number; config: Record<string, unknown> }
-export interface GroupDoc { id: string; name: string; layout: string; collapsed: boolean; tiles: TileDoc[] }
+export interface TileDoc { id: string; type: string; w: number; h: number; x?: number; y?: number; config: Record<string, unknown> }
+export interface GroupDoc { id: string; name: string; layout: string; collapsed: boolean; pack?: boolean; tiles: TileDoc[] }
 export interface TabDoc { id: string; name: string; emoji: string; groups: GroupDoc[] }
 export interface DashboardDoc { revision: number; tabs: TabDoc[] }
 
@@ -20,15 +20,15 @@ const LIMITS = { tabs: 30, groupsPerTab: 20, tilesPerGroup: 80, config: 20_000 }
 export function readDashboard(db: DB): DashboardDoc {
   const revision = Number(getMeta(db, "dashboard_revision") ?? 0);
   const tabs = db.prepare("SELECT id, name, emoji FROM tabs ORDER BY position").all() as unknown as Array<{ id: string; name: string; emoji: string }>;
-  const groups = db.prepare("SELECT id, tab_id, name, layout, collapsed FROM groups ORDER BY position").all() as unknown as Array<{ id: string; tab_id: string; name: string; layout: string; collapsed: number }>;
-  const tiles = db.prepare("SELECT id, group_id, type, w, h, config FROM tiles ORDER BY position").all() as unknown as Array<{ id: string; group_id: string; type: string; w: number; h: number; config: string }>;
+  const groups = db.prepare("SELECT id, tab_id, name, layout, collapsed, pack FROM groups ORDER BY position").all() as unknown as Array<{ id: string; tab_id: string; name: string; layout: string; collapsed: number; pack: number }>;
+  const tiles = db.prepare("SELECT id, group_id, type, w, h, x, y, config FROM tiles ORDER BY position").all() as unknown as Array<{ id: string; group_id: string; type: string; w: number; h: number; x: number | null; y: number | null; config: string }>;
   return {
     revision,
     tabs: tabs.map(tab => ({
       id: tab.id, name: tab.name, emoji: tab.emoji,
       groups: groups.filter(g => g.tab_id === tab.id).map(g => ({
-        id: g.id, name: g.name, layout: g.layout, collapsed: Boolean(g.collapsed),
-        tiles: tiles.filter(t => t.group_id === g.id).map(t => ({ id: t.id, type: t.type, w: t.w, h: t.h, config: JSON.parse(t.config) }))
+        id: g.id, name: g.name, layout: g.layout, collapsed: Boolean(g.collapsed), pack: Boolean(g.pack),
+        tiles: tiles.filter(t => t.group_id === g.id).map(t => ({ id: t.id, type: t.type, w: t.w, h: t.h, ...(t.x !== null && t.y !== null ? { x: t.x, y: t.y } : {}), config: JSON.parse(t.config) }))
       }))
     }))
   };
@@ -76,14 +76,15 @@ export function validateDashboard(input: unknown): { tabs: TabDoc[] } {
         return {
           id: unique(id(rawGroup.id, "Group"), "group"),
           name: str(rawGroup.name ?? "", "Group name", 60),
-          layout, collapsed: Boolean(rawGroup.collapsed),
+          layout, collapsed: Boolean(rawGroup.collapsed), pack: Boolean(rawGroup.pack),
           tiles: rawGroup.tiles.map((rawTile: any): TileDoc => {
             const type = String(rawTile?.type);
             if (!(TILE_TYPES as readonly string[]).includes(type)) throw new ValidationError(`Unknown tile type "${type}"`);
             const config = rawTile.config ?? {};
             if (typeof config !== "object" || Array.isArray(config)) throw new ValidationError("Tile config must be an object");
             if (JSON.stringify(config).length > LIMITS.config) throw new ValidationError("Tile config is too large");
-            return { id: unique(id(rawTile.id, "Tile"), "tile"), type, w: int(rawTile.w, "Tile width", 1, 6), h: int(rawTile.h, "Tile height", 1, 8), config };
+            const placed = rawTile.x !== undefined && rawTile.x !== null && rawTile.y !== undefined && rawTile.y !== null;
+            return { id: unique(id(rawTile.id, "Tile"), "tile"), type, w: int(rawTile.w, "Tile width", 1, 6), h: int(rawTile.h, "Tile height", 1, 8), ...(placed ? { x: int(rawTile.x, "Tile column", 0, 11), y: int(rawTile.y, "Tile row", 0, 400) } : {}), config };
           })
         };
       })
@@ -99,13 +100,13 @@ export function writeDashboard(db: DB, doc: { tabs: TabDoc[] }, baseRevision: nu
     if (baseRevision !== current) throw new ConflictError(readDashboard(db));
     db.exec("DELETE FROM tiles; DELETE FROM groups; DELETE FROM tabs;");
     const insTab = db.prepare("INSERT INTO tabs (id, name, emoji, position) VALUES (?, ?, ?, ?)");
-    const insGroup = db.prepare("INSERT INTO groups (id, tab_id, name, layout, collapsed, position) VALUES (?, ?, ?, ?, ?, ?)");
-    const insTile = db.prepare("INSERT INTO tiles (id, group_id, type, w, h, position, config) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    const insGroup = db.prepare("INSERT INTO groups (id, tab_id, name, layout, collapsed, pack, position) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    const insTile = db.prepare("INSERT INTO tiles (id, group_id, type, w, h, x, y, position, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     doc.tabs.forEach((tab, ti) => {
       insTab.run(tab.id, tab.name, tab.emoji, ti);
       tab.groups.forEach((group, gi) => {
-        insGroup.run(group.id, tab.id, group.name, group.layout, group.collapsed ? 1 : 0, gi);
-        group.tiles.forEach((tile, ki) => insTile.run(tile.id, group.id, tile.type, tile.w, tile.h, ki, JSON.stringify(tile.config)));
+        insGroup.run(group.id, tab.id, group.name, group.layout, group.collapsed ? 1 : 0, group.pack ? 1 : 0, gi);
+        group.tiles.forEach((tile, ki) => insTile.run(tile.id, group.id, tile.type, tile.w, tile.h, tile.x ?? null, tile.y ?? null, ki, JSON.stringify(tile.config)));
       });
     });
     setMeta(db, "dashboard_revision", String(current + 1));

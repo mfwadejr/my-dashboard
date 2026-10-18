@@ -85,6 +85,19 @@ test("dashboard: save, revision conflict, and validation", async () => {
   assert.equal((await call("PUT", "/api/dashboard", { tabs: dup, baseRevision: dash.revision + 1 })).statusCode, 400);
   const huge = structuredClone(tabs); huge[1].groups[0].tiles[0].config = { text: "x".repeat(30000) };
   assert.equal((await call("PUT", "/api/dashboard", { tabs: huge, baseRevision: dash.revision + 1 })).statusCode, 400);
+
+  // Free placement: tile column/row and the group's auto-pack switch are saved; tiles without a spot stay without one.
+  const placed = structuredClone(tabs); placed[1].groups[0].pack = true;
+  placed[1].groups[0].tiles[0].x = 4; placed[1].groups[0].tiles[0].y = 7;
+  placed[1].groups[0].tiles.push({ id: "t2", type: "notes", w: 2, h: 1, config: {} });
+  const ok = await call("PUT", "/api/dashboard", { tabs: placed, baseRevision: dash.revision + 1 });
+  assert.equal(ok.statusCode, 200);
+  const g1 = ok.json().tabs[1].groups[0];
+  assert.deepEqual([g1.pack, g1.tiles[0].x, g1.tiles[0].y, "x" in g1.tiles[1]], [true, 4, 7, false]);
+  for (const [x, y] of [[12, 0], [-1, 0], [0, 401], [1.5, 0]]) {
+    const badPos = structuredClone(placed); badPos[1].groups[0].tiles[0].x = x; badPos[1].groups[0].tiles[0].y = y;
+    assert.equal((await call("PUT", "/api/dashboard", { tabs: badPos, baseRevision: dash.revision + 2 })).statusCode, 400, `${x},${y}`);
+  }
 });
 
 test("integrations: viewers cannot manage them, test catches a wrong key and a wrong app", async () => {

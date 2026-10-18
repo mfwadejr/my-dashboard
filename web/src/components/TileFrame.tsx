@@ -1,15 +1,14 @@
-import { useRef, type PointerEvent as RPointerEvent } from "react";
+import { useRef, type CSSProperties, type PointerEvent as RPointerEvent } from "react";
 import type { Tile } from "../types";
 import { COLS } from "../layout";
+import { spanOf } from "../grid";
 import { WIDGET_BY_TYPE } from "../widgets";
 import type { WidgetProps } from "../widgets/types";
 
 export interface FrameProps extends Omit<WidgetProps, "setConfig" | "openSettings"> {
   gridWidth: () => number;
-  dragging: boolean;
-  onDragStart: (id: string) => void;
-  onDragEnd: () => void;
-  onDropOn: (beforeId: string) => void;
+  lifted: boolean;
+  onGrab: (tile: Tile, e: RPointerEvent<HTMLElement>) => void;
   onResize: (id: string, w: number, h: number) => void;
   onRemove: (id: string) => void;
   onConfig: (id: string, patch: Record<string, unknown>) => void;
@@ -43,19 +42,15 @@ export function TileFrame(p: FrameProps) {
   const props: WidgetProps = { ...p, setConfig: patch => p.onConfig(tile.id, patch), openSettings: () => p.onSettings(tile) };
   const Body = def?.component;
   const cam = tile.type === "camera" || tile.type === "camerawall";
+  const x = tile.x ?? 0, y = tile.y ?? 0;
+  // Explicit grid cell; `order` and --h give phones a sensible reading order when the grid collapses to one column.
+  const place = { gridColumn: `${x + 1} / span ${spanOf(tile)}`, gridRow: `${y + 1} / span ${tile.h}`, order: y * 12 + x, ["--h" as string]: tile.h } as CSSProperties;
   return (
-    <div
-      className={`tile w${tile.w} h${tile.h} ${cam ? "cam" : ""} ${p.dragging ? "drag" : ""}`}
-      data-tile={tile.id}
-      draggable={editing}
-      onDragStart={e => { if (!editing) return; e.dataTransfer.setData("text/plain", tile.id); e.dataTransfer.effectAllowed = "move"; p.onDragStart(tile.id); }}
-      onDragEnd={p.onDragEnd}
-      onDragOver={e => { if (editing) e.preventDefault(); }}
-      onDrop={e => { if (!editing) return; e.preventDefault(); e.stopPropagation(); p.onDropOn(tile.id); }}
-    >
+    <div className={`tile ${cam ? "cam" : ""} ${p.lifted ? "lifted" : ""}`} style={place} data-tile={tile.id}>
       {Body ? <Body {...props} /> : <div className="empty-note">Unknown tile “{tile.type}”.</div>}
       {editing && (
         <>
+          <div className="dragzone" aria-label="Drag to move" onPointerDown={e => p.onGrab(tile, e)} />
           <div className="ctl">
             <button title="Settings" aria-label="Tile settings" onClick={() => p.onSettings(tile)}>⚙</button>
             <button title="Remove" aria-label="Remove tile" onClick={() => p.onRemove(tile.id)}>✕</button>

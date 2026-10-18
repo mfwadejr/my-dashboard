@@ -41,7 +41,9 @@ const MIGRATIONS: string[] = [
     token_hash TEXT PRIMARY KEY, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL
   );
   `,
-  `ALTER TABLE integrations ADD COLUMN insecure_tls INTEGER NOT NULL DEFAULT 0;`
+  `ALTER TABLE integrations ADD COLUMN insecure_tls INTEGER NOT NULL DEFAULT 0;`,
+  /* 3: free tile placement. x/y are NULL until the browser assigns a spot (old dashboards are placed to match how they looked). */
+  `ALTER TABLE tiles ADD COLUMN x INTEGER; ALTER TABLE tiles ADD COLUMN y INTEGER; ALTER TABLE groups ADD COLUMN pack INTEGER NOT NULL DEFAULT 0;`
 ];
 
 export function openDb(dataDir: string): DB {
