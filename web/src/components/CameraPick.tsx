@@ -22,6 +22,9 @@ export function CameraPick({ cameras, current, config, onConfig, onPick, onAdd, 
         <Field label="Show as" hint="Snapshots are a picture refreshed every few seconds. They use far less bandwidth than live video.">
           <select value={String(config.mode ?? "live")} onChange={e => onConfig({ mode: e.target.value })}><option value="live">Live video</option><option value="snapshot">Snapshot, refreshed</option></select>
         </Field>
+        <Field label="Quality" hint="Each camera has a main stream (full resolution) and may have a lighter sub-stream. The picture opened full size always uses the main stream.">
+          <select value={config.stream === "main" ? "main" : "sub"} onChange={e => onConfig({ stream: e.target.value })}><option value="sub">Light (sub-stream), easier on the network</option><option value="main">Full resolution (main stream)</option></select>
+        </Field>
         {config.mode === "snapshot" && (
           <Field label="Refresh every"><select value={String(refreshOf(config.refresh))} onChange={e => onConfig({ refresh: Number(e.target.value) })}>{REFRESH_CHOICES.map(n => <option key={n} value={n}>{n} seconds</option>)}</select></Field>
         )}

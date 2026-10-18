@@ -22,7 +22,7 @@ export function CameraWall({ tile, cameras, editing, openCamera, openSettings }:
         const cam = cameras.find(c => c.id === id)!;
         return (
           <div key={id} className="wall-cell">
-            <CameraFeed cameraId={id} mode={mode} refreshSec={refreshSec} />
+            <CameraFeed cameraId={id} mode={mode} refreshSec={refreshSec} main={tile.config.stream === "main"} />
             <div className="cov top"><span className="cname">{cam.name}</span></div>
             {!editing && <button className="cam-hit" aria-label={`Open ${cam.name}`} onClick={() => openCamera(id)} />}
           </div>

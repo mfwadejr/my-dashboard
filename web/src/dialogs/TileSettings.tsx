@@ -55,6 +55,7 @@ export function TileSettings({ tile, integrations, cameras = [], onAddCameras, o
               <Field label="Show as" hint="Snapshots are pictures refreshed every few seconds. Live video for many cameras at once is heavy on the network and the browser.">
                 <select value={mode} onChange={e => onChange({ mode: e.target.value })}><option value="snapshot">Snapshots, refreshed</option><option value="live">Live video</option></select>
               </Field>
+              <Field label="Quality" hint="Full resolution uses each camera's main stream. With many cameras on one wall that is heavy; the picture opened full size always uses the main stream."><select value={tile.config.stream === "main" ? "main" : "sub"} onChange={e => onChange({ stream: e.target.value })}><option value="sub">Light (sub-stream)</option><option value="main">Full resolution (main stream)</option></select></Field>
               {mode === "snapshot" && <Field label="Refresh every"><select value={String(refreshOf(tile.config.refresh))} onChange={e => onChange({ refresh: Number(e.target.value) })}>{REFRESH_CHOICES.map(n => <option key={n} value={n}>{n} seconds</option>)}</select></Field>}
               {mode === "live" && live.length > 4 && <p className="sub">That is {live.length} live streams at once. If it feels slow, switch to snapshots.</p>}
             </>
