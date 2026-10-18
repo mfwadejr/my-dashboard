@@ -3,7 +3,7 @@ import { api, assignIcon } from "../api";
 import { IconButton } from "../components/IconButton";
 import { Confirm, Pill } from "../widgets/common";
 import { fmtDateTime, useSettings } from "../settings";
-import { Row, Section, ago, useNotice } from "./ui";
+import { Row, Section, ago, copyText, useNotice } from "./ui";
 
 interface Token { id: string; name: string; prefix: string; scope: "read" | "write"; createdAt: number; createdBy: string; lastUsed: number | null; lastIp: string; uses: number; revoked: boolean; icon?: string; iconRef?: string }
 
@@ -22,7 +22,7 @@ export function ApiAccess() {
     try { const r = await api.post<Token & { token: string }>("/api/tokens", { name: name.trim(), scope }); setFresh({ name: r.name, token: r.token }); setName(""); load(); }
     catch (e) { n.bad(e); }
   };
-  const copy = (t: string) => { void navigator.clipboard?.writeText(t).then(() => n.ok("Copied."), () => {}); };
+  const copy = (t: string) => { void copyText(t).then(ok => (ok ? n.ok("Copied.") : n.bad(new Error("Could not copy. Select the text and copy it by hand.")))); };
   const origin = window.location.origin;
 
   return (

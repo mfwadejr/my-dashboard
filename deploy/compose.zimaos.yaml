@@ -30,6 +30,28 @@ services:
       - go2rtc
     labels:
       icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/homarr.png
+    x-casaos:
+      envs:
+        - container: GO2RTC_URL
+          description:
+            en_us: Where Homebase reaches go2rtc (the camera relay).
+        - container: TRUST_PROXY
+          description:
+            en_us: Set to true when a reverse proxy sits in front, so the log sees the real visitor address.
+        - container: ADMIN_PASSWORD
+          description:
+            en_us: Optional. Pre-set the admin password instead of choosing it on first visit.
+      ports:
+        - container: "3000"
+          description:
+            en_us: Dashboard (keep off the internet).
+        - container: "3001"
+          description:
+            en_us: Camera share links only (the port a reverse proxy should point at).
+      volumes:
+        - container: /data
+          description:
+            en_us: Homebase database, saved icons, backups and encryption key.
 
   go2rtc:
     image: alexxit/go2rtc:latest
@@ -40,3 +62,27 @@ services:
     network_mode: host
     volumes:
       - /DATA/AppData/homebase/go2rtc:/config
+    x-casaos:
+      volumes:
+        - container: /config
+          description:
+            en_us: go2rtc settings.
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  main: homebase
+  author: Marvin Wade
+  developer: Marvin Wade
+  category: Utilities
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/homarr.png
+  title:
+    en_us: Homebase
+  tagline:
+    en_us: A self-hosted dashboard for your apps, cameras and servers
+  description:
+    en_us: Homebase shows Sonarr, Radarr, SABnzbd, Unraid, UniFi, cameras and more on one customizable dashboard, with backups, sharing and sign-in built in. Includes go2rtc for camera video.
+  index: /
+  port_map: "3000"
+  scheme: http

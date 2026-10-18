@@ -3,7 +3,7 @@ import { api } from "../api";
 import { Confirm, Pill } from "../widgets/common";
 import { fmtDateTime, useSettings } from "../settings";
 import type { AboutInfo, CameraInfo } from "../types";
-import { Row, Section, useNotice } from "./ui";
+import { Row, Section, copyText, useNotice } from "./ui";
 
 interface Share { id: string; name: string; kind: "cameras" | "kiosk"; cameras: string[]; expiresAt: number | null; revoked: boolean; createdAt: number; lastUsed: number | null; views: number; hasPin: boolean; token: string }
 
@@ -29,8 +29,8 @@ export function Sharing({ cameras, about }: { cameras: CameraInfo[]; about: Abou
     try { await api.post("/api/shares", form); n.ok("Link created. Copy it below."); setForm({ name: "", kind: form.kind, cameras: [], expiresIn: form.expiresIn, pin: "" }); load(); } catch (e) { n.bad(e); }
   };
   const copy = async (s: Share) => {
-    try { await navigator.clipboard.writeText(link(s)); setCopied(s.id); window.setTimeout(() => setCopied(""), 2000); }
-    catch { setCopied(`select:${s.id}`); }
+    if (await copyText(link(s))) { setCopied(s.id); window.setTimeout(() => setCopied(""), 2000); }
+    else { setCopied(`select:${s.id}`); window.setTimeout(() => document.querySelector<HTMLInputElement>(`input[data-link="${s.id}"]`)?.select(), 0); }
   };
 
   return (
@@ -60,7 +60,7 @@ export function Sharing({ cameras, about }: { cameras: CameraInfo[]; about: Abou
                   {!s.revoked && <Confirm label="Switch off" name="Switch off" sure="Sure?" onGo={async () => { await api.post(`/api/shares/${s.id}/revoke`); load(); }} />}
                   <Confirm label="Delete" name="Delete" sure="Sure?" onGo={async () => { await api.del(`/api/shares/${s.id}`); load(); }} />
                 </span></div>
-              {!s.revoked && <input readOnly className={`linkbox${copied === `select:${s.id}` ? " hot" : ""}`} value={link(s)} onFocus={e => e.currentTarget.select()} aria-label="Link" />}
+              {!s.revoked && <input readOnly className={`linkbox${copied === `select:${s.id}` ? " hot" : ""}`} value={link(s)} onFocus={e => e.currentTarget.select()} aria-label="Link" data-link={s.id} />}
             </div>
           ))}</div>
         )}

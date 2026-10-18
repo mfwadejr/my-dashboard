@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { copyText } from "../settings/ui";
 import { api } from "../api";
 import type { AuthUser } from "../types";
 
@@ -23,7 +24,7 @@ export function TwoFactorPanel({ me, onChanged }: { me: AuthUser; onChanged: () 
   const enable = () => run(async () => { const r = await api.post<{ recoveryCodes: string[] }>("/api/auth/2fa/enable", { code }); setCodes(r.recoveryCodes); setStep("codes"); setCode(""); setSetup(null); void load(); onChanged(); });
   const disable = () => run(async () => { await api.post("/api/auth/2fa/disable", { password: pw, code }); reset(); setMsg({ ok: true, text: "Two-factor sign-in is off." }); void load(); onChanged(); });
   const newCodes = () => run(async () => { const r = await api.post<{ recoveryCodes: string[] }>("/api/auth/2fa/recovery", { password: pw, code }); setCodes(r.recoveryCodes); setStep("codes"); setPw(""); setCode(""); void load(); });
-  const copy = () => { void navigator.clipboard?.writeText(codes.join("\n")).then(() => setMsg({ ok: true, text: "Copied." }), () => {}); };
+  const copy = () => { void copyText(codes.join("\n")).then(ok => setMsg(ok ? { ok: true, text: "Copied." } : { ok: false, text: "Could not copy. Select the codes and copy them by hand." })); };
 
   return (
     <div className="twofa">

@@ -63,3 +63,16 @@ export function deviceName(ua: string): string {
   const br = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "";
   return [br, os].filter(Boolean).join(" on ") || "Unknown device";
 }
+
+/** Copies text. The clipboard API only exists on https or localhost, and Homebase is often opened over plain http on a home network, so fall back to the older method. Returns whether it worked. */
+export async function copyText(text: string): Promise<boolean> {
+  try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; } } catch { /* try the fallback */ }
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.setAttribute("readonly", ""); ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;";
+  const keep = document.activeElement as HTMLElement | null;
+  document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, text.length);
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch { ok = false; }
+  ta.remove(); keep?.focus?.();
+  return ok;
+}
