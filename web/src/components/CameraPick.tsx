@@ -1,9 +1,11 @@
 import type { CameraInfo } from "../types";
+import { assignIcon } from "../api";
 import { Field, Modal } from "../dialogs/Modal";
+import { IconButton } from "./IconButton";
 import { REFRESH_CHOICES, refreshOf } from "../widgets/Camera";
 
-export function CameraPick({ cameras, current, config, onConfig, onPick, onAdd, onEdit, onClose }: {
-  cameras: CameraInfo[]; current?: string; config: Record<string, unknown>; onConfig: (patch: Record<string, unknown>) => void; onPick: (id: string) => void; onAdd: () => void; onEdit: (id: string) => void; onClose: () => void;
+export function CameraPick({ cameras, current, config, onConfig, onPick, onAdd, onEdit, onClose, onChanged }: {
+  cameras: CameraInfo[]; current?: string; config: Record<string, unknown>; onConfig: (patch: Record<string, unknown>) => void; onPick: (id: string) => void; onAdd: () => void; onEdit: (id: string) => void; onClose: () => void; onChanged?: () => void;
 }) {
   return (
     <Modal title="Choose a camera" eyebrow="Camera tile" onClose={onClose}>
@@ -11,7 +13,7 @@ export function CameraPick({ cameras, current, config, onConfig, onPick, onAdd, 
         {cameras.length === 0 && <div className="empty-note">No cameras yet.</div>}
         {cameras.map(c => (
           <div key={c.id} className="li">
-            <span><b>{c.name}</b>{c.id === current ? <span className="sub"> · showing</span> : null}</span>
+            <IconButton icon={c.icon} iconRef={c.iconRef} name={c.name} size={22} onChange={async v => { await assignIcon("camera", c.id, v); onChanged?.(); }} /><span style={{ flex: 1 }}><b>{c.name}</b>{c.id === current ? <span className="sub"> · showing</span> : null}</span>
             <span className="row"><button className="btn sm" onClick={() => onEdit(c.id)}>Edit</button><button className="btn sm pri" onClick={() => onPick(c.id)}>Use</button></span>
           </div>
         ))}

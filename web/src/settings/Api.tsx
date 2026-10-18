@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, assignIcon } from "../api";
+import { IconButton } from "../components/IconButton";
 import { Confirm, Pill } from "../widgets/common";
 import { fmtDateTime, useSettings } from "../settings";
 import { Row, Section, ago, useNotice } from "./ui";
 
-interface Token { id: string; name: string; prefix: string; scope: "read" | "write"; createdAt: number; createdBy: string; lastUsed: number | null; lastIp: string; uses: number; revoked: boolean }
+interface Token { id: string; name: string; prefix: string; scope: "read" | "write"; createdAt: number; createdBy: string; lastUsed: number | null; lastIp: string; uses: number; revoked: boolean; icon?: string; iconRef?: string }
 
 /** Keys other tools use to read (or change) the dashboard without a login. */
 export function ApiAccess() {
@@ -31,7 +32,7 @@ export function ApiAccess() {
           {items.length === 0 && <p className="sub">No tokens yet.</p>}
           {items.map(t => (
             <div key={t.id} className="srow">
-              <div><b>{t.name}</b> <Pill tone={t.scope === "write" ? "warn" : "mute"}>{t.scope === "write" ? "read-write" : "read-only"}</Pill> {t.revoked && <Pill tone="bad">revoked</Pill>} <code>{t.prefix}…</code>
+              <div className="who"><IconButton icon={t.icon} iconRef={t.iconRef} name={t.name} size={22} onChange={async v => { await assignIcon("token", t.id, v); load(); }} /><b>{t.name}</b> <Pill tone={t.scope === "write" ? "warn" : "mute"}>{t.scope === "write" ? "read-write" : "read-only"}</Pill> {t.revoked && <Pill tone="bad">revoked</Pill>} <code>{t.prefix}…</code>
                 <div className="sub">Made {fmtDateTime(t.createdAt, settings)} by {t.createdBy} · {t.lastUsed ? `last used ${ago(t.lastUsed)}${t.lastIp ? ` from ${t.lastIp}` : ""} · ${t.uses.toLocaleString()} use(s)` : "never used"}</div></div>
               <span className="row wrapme">
                 {!t.revoked && <Confirm label="Revoke" name={`Revoke ${t.name}`} sure="Stops working now. Sure?" onGo={async () => { try { await api.post(`/api/tokens/${t.id}/revoke`); load(); } catch (e) { n.bad(e); } }} />}

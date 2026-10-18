@@ -403,8 +403,8 @@ test("update check: off by default and silent; when on it asks GitHub once and s
   } finally { delete process.env.UPDATE_API_BASE; delete process.env.APP_COMMIT; await gh.close(); }
 });
 
-test("restore-safe: old data folders upgrade to layout 5 with their sessions and metrics intact", async () => {
+test("restore-safe: old data folders upgrade to layout 6 with their sessions and metrics intact", async () => {
   assert.ok(existsSync(join(dir, "homebase.db")));
   assert.ok(readdirSync(dir).length > 0);
-  assert.equal((ctx.db.prepare("SELECT v FROM meta WHERE k = 'schema_version'").get() as any).v, "5");
+  assert.equal((ctx.db.prepare("SELECT v FROM meta WHERE k = 'schema_version'").get() as any).v, "6");
 });

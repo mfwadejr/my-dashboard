@@ -13,7 +13,7 @@ export function authRoutes(app: FastifyInstance, d: Deps): void {
 
   app.get("/api/auth/status", async request => {
     const p = access.viewer(request);
-    const user = !p ? null : p.kind === "user" ? { id: p.user.id, username: p.user.username, role: p.user.role, totp: p.user.totpEnabled }
+    const user = !p ? null : p.kind === "user" ? { id: p.user.id, username: p.user.username, role: p.user.role, totp: p.user.totpEnabled, icon: p.user.icon }
       : p.kind === "share" ? { id: "kiosk", username: p.share.name, role: "viewer" as const, totp: false } : { id: p.token.id, username: p.token.name, role: "viewer" as const, totp: false };
     return { setup: isSetUp(db), authed: Boolean(p), user, kiosk: p?.kind === "share" };
   });

@@ -126,8 +126,9 @@ export function Copies() {
         <Row label="">
           <span className="row wrapme">
             <button className="btn pri" disabled={busy === "make"} onClick={() => void makeCopy()}>{busy === "make" ? "Saving…" : "Save a copy now"}</button>
-            <input ref={addRef} type="file" accept=".db,application/octet-stream" hidden onChange={e => void upload(e.target.files?.[0])} />
+            <input ref={addRef} type="file" accept=".db,.gz,.tar.gz,application/octet-stream,application/gzip" hidden onChange={e => void upload(e.target.files?.[0])} />
             <button className="btn" disabled={busy === "upload"} onClick={() => addRef.current?.click()}>{busy === "upload" ? "Checking…" : "Add a copy from a file…"}</button>
+            <a className="btn" href="/api/backup/complete" download title="The database and every saved icon in one file">Download a Complete backup</a>
           </span>
         </Row>
         {snaps.length === 0 ? <p className="sub">No copies yet.</p> : (
@@ -156,9 +157,9 @@ export function Copies() {
         {sn.el}
       </Section>
 
-      <Section title="Verify a file" hint="Check any database copy (.db) or Homebase backup (.json) without restoring it, for example one you pulled from your NAS. Nothing is changed.">
+      <Section title="Verify a file" hint="Check any database copy (.db), Complete backup (.tar.gz) or Homebase backup (.json) without restoring it, for example one you pulled from your NAS. Nothing is changed.">
         <Row label="Passphrase" hint="Only needed to check the protected section of a JSON backup."><input type="password" autoComplete="off" value={filePass} onChange={e => setFilePass(e.target.value)} placeholder="Optional" /></Row>
-        <Row label=""><input ref={verRef} type="file" accept=".db,.json,application/json,application/octet-stream" hidden onChange={e => void verifyFile(e.target.files?.[0])} /><button className="btn" disabled={busy === "file"} onClick={() => verRef.current?.click()}>{busy === "file" ? "Checking…" : "Choose a file to verify…"}</button></Row>
+        <Row label=""><input ref={verRef} type="file" accept=".db,.gz,.tar.gz,.json,application/json,application/gzip,application/octet-stream" hidden onChange={e => void verifyFile(e.target.files?.[0])} /><button className="btn" disabled={busy === "file"} onClick={() => verRef.current?.click()}>{busy === "file" ? "Checking…" : "Choose a file to verify…"}</button></Row>
         {fileReport && <VerifyView report={fileReport.report} title={fileReport.name} />}
         {vf.el}
       </Section>

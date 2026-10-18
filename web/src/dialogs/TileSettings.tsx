@@ -5,13 +5,13 @@ import { REFRESH_CHOICES, refreshOf } from "../widgets/Camera";
 import type { LauncherItem } from "../widgets/Launcher";
 import { WIDGET_BY_TYPE } from "../widgets";
 import { Field, Modal } from "./Modal";
-import { iconUrl } from "../api";
+import { IconButton } from "../components/IconButton";
 import { initials } from "../widgets/common";
 import { SECTION_DEFS, resolveSections } from "../widgets/sections";
 
-export function TileSettings({ tile, integrations, cameras = [], onAddCameras, onChange, onPickIcon, onOpenConnections, onClose }: {
+export function TileSettings({ tile, integrations, cameras = [], onAddCameras, onChange, onOpenConnections, onClose }: {
   tile: Tile; integrations: IntegrationInfo[]; cameras?: CameraInfo[]; onAddCameras?: () => void; onChange: (patch: Record<string, unknown>) => void;
-  onPickIcon: (itemId: string) => void; onOpenConnections: () => void; onClose: () => void;
+  onOpenConnections: () => void; onClose: () => void;
 }) {
   const def = WIDGET_BY_TYPE[tile.type];
   const [items, setItems] = useState<LauncherItem[]>((tile.config.items ?? []) as LauncherItem[]);
@@ -22,7 +22,7 @@ export function TileSettings({ tile, integrations, cameras = [], onAddCameras, o
   return (
     <Modal title={`${def?.label ?? "Tile"} settings`} eyebrow="Tile" onClose={onClose} wide={tile.type === "launcher"}>
       <div className="form">
-        <Field label="Title (optional)"><input defaultValue={String(tile.config.title ?? "")} onChange={e => onChange({ title: e.target.value })} maxLength={40} /></Field>
+        <div className="row2 title-row"><Field label="Title (optional)"><input defaultValue={String(tile.config.title ?? "")} onChange={e => onChange({ title: e.target.value })} maxLength={40} /></Field><div className="field"><span>Icon</span><IconButton icon={tile.config.icon as string | undefined} iconRef={tile.config.iconRef as string | undefined} name={String(tile.config.title || def?.label || "Tile")} label="Choose a tile icon" onChange={v => onChange({ icon: v.icon || undefined, iconRef: v.iconRef || undefined })} /></div></div>
         {def?.needs && (
           <Field label="Connection" hint="Which connected app this tile shows.">
             {options.length ? (
@@ -109,7 +109,7 @@ export function TileSettings({ tile, integrations, cameras = [], onAddCameras, o
             <div className="list">
               {items.map(item => (
                 <div key={item.id} className="li launch-edit">
-                  <button type="button" className="icon-btn" title="Choose icon" onClick={() => onPickIcon(item.id)}>{item.icon ? <img src={iconUrl(item.icon)} alt="" /> : initials(item.name || "?")}</button>
+                  <IconButton icon={item.icon} iconRef={item.iconRef} name={item.name || "?"} onChange={v => patchItem(item.id, { icon: v.icon || null, iconRef: v.iconRef || null })} />
                   <input placeholder="Name" value={item.name} onChange={e => patchItem(item.id, { name: e.target.value })} maxLength={40} />
                   <input placeholder="https://…" value={item.url} onChange={e => patchItem(item.id, { url: e.target.value })} />
                   <select value={item.integrationId ?? ""} onChange={e => patchItem(item.id, { integrationId: e.target.value || null })} title="Show a status dot from a connection">

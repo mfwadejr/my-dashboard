@@ -32,6 +32,7 @@ import { seedIfEmpty } from "./dashboard.js";
 import { Go2rtc } from "./go2rtc.js";
 import { Hub } from "./hub.js";
 import { Icons } from "./icons.js";
+import { migrateLegacyIcons } from "./iconmigrate.js";
 import { Poller } from "./poller.js";
 import { LiveSampler } from "./live.js";
 import { Store } from "./store.js";
@@ -49,19 +50,20 @@ export async function buildApp(config: Config) {
   const poller = new Poller(db, store, hub, config.dataDir);
   const live = new LiveSampler(store);
   const go2rtc = new Go2rtc(config.go2rtcUrl, store, db);
-  const icons = new Icons(config.dataDir);
+  const icons = new Icons(db, config.dataDir);
   const shares = new Shares(db, box);
   const tokens = new Tokens(db);
   const access = new Access(db, shares, tokens);
   const version = versionInfo();
   const destinations = new Destinations(db, box);
-  const deps: Deps = { config, db, box, store, hub, poller, go2rtc, shares, access, tokens, destinations, maintenance: undefined as unknown as Maintenance, restart: () => {}, backups: undefined as unknown as AutoBackup };
+  const deps: Deps = { config, db, box, store, hub, poller, go2rtc, shares, access, tokens, destinations, icons, maintenance: undefined as unknown as Maintenance, restart: () => {}, backups: undefined as unknown as AutoBackup };
   deps.backups = new AutoBackup(() => deps, config.dataDir);
   deps.maintenance = new Maintenance(() => deps);
   try { rmSync(deps.backups.tmp, { recursive: true, force: true }); } catch { /* leftovers from an interrupted upload */ }
   const requireAuth = access.requireAdmin;
 
   seedIfEmpty(db);
+  try { migrateLegacyIcons(deps); } catch (error) { logEvent(db, "error", "system", `Icon migration failed: ${error instanceof Error ? error.message : error}`); }
   if (process.env.HOMEBASE_RESET_2FA) {
     // Lock-out escape hatch: set this to a username, start Homebase once, then remove it.
     const name = process.env.HOMEBASE_RESET_2FA.trim();
@@ -116,7 +118,7 @@ export async function buildApp(config: Config) {
   systemRoutes(app, deps);
   dashboardRoutes(app, deps);
   integrationRoutes(app, db, store, poller, hub, requireAuth, live, access, version.build);
-  iconRoutes(app, icons, requireAuth);
+  iconRoutes(app, deps);
   await cameraRoutes(app, deps);
 
   if (existsSync(join(config.webDir, "index.html"))) {
@@ -129,10 +131,10 @@ export async function buildApp(config: Config) {
 
   const publicApp = config.publicPort && config.publicPort > 0 ? await buildPublicApp(deps) : null;
   if (config.startPollers) {
-    poller.start(); go2rtc.start(); deps.backups.start(); deps.maintenance.start();
+    poller.start(); go2rtc.start(); deps.backups.start(); deps.maintenance.start(); icons.start();
     logEvent(db, "info", "system", `Homebase ${version.version} (${version.commit}) started`);
   }
-  app.addHook("onClose", async () => { if (publicApp) await publicApp.close(); poller.stop(); live.stop(); go2rtc.stop(); deps.backups.stop(); deps.maintenance.stop(); hub.close(); db.close(); });
+  app.addHook("onClose", async () => { if (publicApp) await publicApp.close(); poller.stop(); live.stop(); go2rtc.stop(); deps.backups.stop(); deps.maintenance.stop(); icons.stop(); hub.close(); db.close(); });
   return { app, publicApp, db, store, poller, go2rtc, deps };
 }
 

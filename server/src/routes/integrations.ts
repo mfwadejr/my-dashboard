@@ -29,7 +29,7 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
   app.get("/api/integrations", async request => {
     const p = access.principal(request); const admin = p?.kind === "user" && p.user.role === "admin";
     return store.listIntegrations().map(row => ({
-      id: row.id, type: row.type, name: row.name, enabled: Boolean(row.enabled),
+      id: row.id, type: row.type, name: row.name, enabled: Boolean(row.enabled), icon: row.icon, iconRef: row.icon_ref,
       ...(admin ? { url: row.url, intervalSeconds: row.interval_s, hasKey: Boolean(row.secret), insecureTls: Boolean(row.insecure_tls) } : {})
     }));
   });

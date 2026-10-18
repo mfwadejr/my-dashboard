@@ -90,6 +90,21 @@ const MIGRATIONS: string[] = [
     created_at INTEGER NOT NULL, created_by TEXT NOT NULL DEFAULT '', last_used INTEGER, last_ip TEXT NOT NULL DEFAULT '',
     uses INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0
   );
+  `,
+  /* 6: icons. Every kind of thing can carry a picture: icon is the saved file (icons/used/...), icon_ref remembers which library icon it came from. icon_index is the searchable list of the three libraries. */
+  `
+  ALTER TABLE integrations ADD COLUMN icon TEXT NOT NULL DEFAULT ''; ALTER TABLE integrations ADD COLUMN icon_ref TEXT NOT NULL DEFAULT '';
+  ALTER TABLE cameras ADD COLUMN icon TEXT NOT NULL DEFAULT ''; ALTER TABLE cameras ADD COLUMN icon_ref TEXT NOT NULL DEFAULT '';
+  ALTER TABLE users ADD COLUMN icon TEXT NOT NULL DEFAULT ''; ALTER TABLE users ADD COLUMN icon_ref TEXT NOT NULL DEFAULT '';
+  ALTER TABLE api_tokens ADD COLUMN icon TEXT NOT NULL DEFAULT ''; ALTER TABLE api_tokens ADD COLUMN icon_ref TEXT NOT NULL DEFAULT '';
+  ALTER TABLE tabs ADD COLUMN icon TEXT NOT NULL DEFAULT ''; ALTER TABLE tabs ADD COLUMN icon_ref TEXT NOT NULL DEFAULT '';
+  CREATE TABLE icon_index (
+    source TEXT NOT NULL, slug TEXT NOT NULL, format TEXT NOT NULL DEFAULT 'svg', formats TEXT NOT NULL DEFAULT 'svg',
+    label TEXT NOT NULL, search_text TEXT NOT NULL, content_hash TEXT NOT NULL DEFAULT '',
+    mirrored INTEGER NOT NULL DEFAULT 0, removed_at INTEGER, synced_at INTEGER NOT NULL,
+    PRIMARY KEY (source, slug)
+  );
+  CREATE INDEX icon_index_slug ON icon_index(slug);
   `
 ];
 

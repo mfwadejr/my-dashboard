@@ -1,8 +1,8 @@
 import type { WidgetProps } from "./types";
 import { Title, initials } from "./common";
-import { iconUrl } from "../api";
+import { Icon } from "../components/Icon";
 
-export interface LauncherItem { id: string; name: string; url: string; icon?: string | null; integrationId?: string | null; note?: string }
+export interface LauncherItem { id: string; name: string; url: string; icon?: string | null; iconRef?: string | null; integrationId?: string | null; note?: string }
 
 export function Launcher({ tile, snapshots, query, editing }: WidgetProps) {
   const items = (tile.config.items ?? []) as LauncherItem[];
@@ -19,7 +19,7 @@ export function Launcher({ tile, snapshots, query, editing }: WidgetProps) {
           return (
             <a key={item.id} className="app" href={editing ? undefined : item.url} target="_blank" rel="noreferrer noopener" onClick={e => editing && e.preventDefault()} draggable={false}>
               {status && <span className={`dot ${status}`} title={snap?.ok ? "Online" : snap?.error ?? "Offline"} />}
-              <div className="ic">{item.icon ? <img src={iconUrl(item.icon)} alt="" draggable={false} /> : initials(item.name)}</div>
+              <div className="ic">{item.icon ? <Icon icon={item.icon} iconRef={item.iconRef} name={item.name} size={30} /> : initials(item.name)}</div>
               <div className="n">{item.name}</div>
               {item.note && <div className="s">{item.note}</div>}
             </a>

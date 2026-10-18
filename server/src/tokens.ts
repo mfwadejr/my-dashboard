@@ -3,12 +3,12 @@ import { ValidationError } from "./dashboard.js";
 import type { DB } from "./db.js";
 
 export type TokenScope = "read" | "write";
-export interface TokenRow { id: string; name: string; prefix: string; scope: TokenScope; createdAt: number; createdBy: string; lastUsed: number | null; lastIp: string; uses: number; revoked: boolean }
+export interface TokenRow { id: string; name: string; prefix: string; scope: TokenScope; createdAt: number; createdBy: string; lastUsed: number | null; lastIp: string; uses: number; revoked: boolean; icon: string; iconRef: string }
 
-interface Raw { id: string; name: string; prefix: string; scope: string; created_at: number; created_by: string; last_used: number | null; last_ip: string; uses: number; revoked: number }
-const toRow = (r: Raw): TokenRow => ({ id: r.id, name: r.name, prefix: r.prefix, scope: r.scope === "write" ? "write" : "read", createdAt: r.created_at, createdBy: r.created_by, lastUsed: r.last_used, lastIp: r.last_ip, uses: r.uses, revoked: Boolean(r.revoked) });
+interface Raw { id: string; name: string; prefix: string; scope: string; created_at: number; created_by: string; last_used: number | null; last_ip: string; uses: number; revoked: number; icon: string; icon_ref: string }
+const toRow = (r: Raw): TokenRow => ({ id: r.id, name: r.name, prefix: r.prefix, scope: r.scope === "write" ? "write" : "read", createdAt: r.created_at, createdBy: r.created_by, lastUsed: r.last_used, lastIp: r.last_ip, uses: r.uses, revoked: Boolean(r.revoked), icon: r.icon, iconRef: r.icon_ref });
 const hash = (raw: string) => createHash("sha256").update(raw).digest("hex");
-const COLS = "id, name, prefix, scope, created_at, created_by, last_used, last_ip, uses, revoked";
+const COLS = "id, name, prefix, scope, created_at, created_by, last_used, last_ip, uses, revoked, icon, icon_ref";
 
 /** API tokens let other tools read (or, with read-write, change) the dashboard without a login. Only a hash is stored. */
 export class Tokens {

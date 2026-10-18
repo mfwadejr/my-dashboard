@@ -3,11 +3,12 @@ import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import type { SecretBox } from "./crypto.js";
 import { SCHEMA_VERSION } from "./db.js";
+import { referencedIcons } from "./iconuse.js";
 
 export type CheckStatus = "pass" | "warn" | "fail";
 export interface Check { id: string; label: string; status: CheckStatus; detail: string }
 export interface VerifyReport {
-  kind: "database" | "json";
+  kind: "database" | "json" | "complete";
   /** True when nothing failed. Warnings do not change this. */
   ok: boolean;
   /** True when the file can safely be restored (it opens, is intact and is not from a newer version). */
@@ -21,7 +22,7 @@ export interface VerifyReport {
 }
 
 const STRUCTURAL = new Set(["sqlite", "integrity", "foreign", "layout", "structure"]);
-export const finish = (kind: "database" | "json", checks: Check[], counts: Record<string, number>, size: number, createdAt: number | null, layout: number | null): VerifyReport => {
+export const finish = (kind: "database" | "json" | "complete", checks: Check[], counts: Record<string, number>, size: number, createdAt: number | null, layout: number | null): VerifyReport => {
   const failed = checks.filter(c => c.status === "fail"), warned = checks.filter(c => c.status === "warn");
   const passed = checks.filter(c => c.status === "pass").length;
   return {
@@ -41,7 +42,7 @@ const COUNT_TABLES: Array<[string, string]> = [["tabs", "tabs"], ["groups", "gro
  * Checks a database file without touching it: it is copied to a temporary folder and the copy is opened read-only.
  * `tmpRoot` must be a folder this process may write to.
  */
-export function verifyDatabaseFile(file: string, box: SecretBox, tmpRoot: string, createdAt?: number | null): VerifyReport {
+export function verifyDatabaseFile(file: string, box: SecretBox, tmpRoot: string, createdAt?: number | null, opts: { hasIcon?: (name: string) => boolean; iconsWhere?: string } = {}): VerifyReport {
   const checks: Check[] = [], counts: Record<string, number> = {};
   const add = (id: string, label: string, status: CheckStatus, detail: string) => checks.push({ id, label, status, detail });
   const size = existsSync(file) ? statSync(file).size : 0;
@@ -101,6 +102,15 @@ export function verifyDatabaseFile(file: string, box: SecretBox, tmpRoot: string
         add("admin", "An administrator exists", has ? "pass" : "warn", has ? "The older single administrator password is present." : "No administrator password is set yet; you would be asked to create one.");
       }
     } catch { add("admin", "An administrator exists", "warn", "The accounts could not be read."); }
+
+    if (opts.hasIcon) {
+      const names = [...referencedIcons(db)];
+      const missing = names.filter(n => !opts.hasIcon!(n));
+      counts.icons = names.length;
+      if (!names.length) add("icons", "Saved icons", "pass", "No saved icons are used.");
+      else if (!missing.length) add("icons", "Saved icons", "pass", `All ${names.length} icon(s) in use are ${opts.iconsWhere ?? "on this server"}.`);
+      else add("icons", "Saved icons", "warn", `${missing.length} of ${names.length} icon(s) in use are not ${opts.iconsWhere ?? "on this server"}, so they would show letters. A Complete backup (Data & backup) carries the icons along with the database.`);
+    }
 
     const dateText = when ? new Date(when).toISOString().replace("T", " ").slice(0, 16) + " UTC" : "unknown";
     add("meta", "Date and size", "pass", `Saved ${dateText}, ${(size / 1024).toFixed(size > 1_048_576 ? 0 : 1)} KB.`);

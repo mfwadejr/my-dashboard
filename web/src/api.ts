@@ -32,4 +32,6 @@ export function uid(): string {
   return out;
 }
 
+/** Puts a saved icon on a connection, camera, person or token ("" clears it). Tabs, tiles and Launcher items travel with the dashboard document instead. */
+export const assignIcon = (kind: "connection" | "camera" | "account" | "token", id: string, v: { icon: string; iconRef: string }) => api.put("/api/icons/assign", { kind, id, ...v });
 export const iconUrl = (id?: string | null) => (id ? `/icons/${id}` : "");

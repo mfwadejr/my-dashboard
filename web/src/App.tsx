@@ -17,7 +17,7 @@ import { Lightbox } from "./components/Lightbox";
 import { CameraPick } from "./components/CameraPick";
 import { CameraDialog } from "./dialogs/CameraDialog";
 import { Modal } from "./dialogs/Modal";
-import { IconPicker } from "./dialogs/IconPicker";
+import { Icon } from "./components/Icon";
 import { IntegrationsDialog } from "./dialogs/IntegrationsDialog";
 import { TabDialog } from "./dialogs/TabDialog";
 import { TileSettings } from "./dialogs/TileSettings";
@@ -70,7 +70,7 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
   const ghostPos = useRef({ x: 0, y: 0 });
   const [dlg, setDlg] = useState<
     | { kind: "account" } | { kind: "connections" } | { kind: "tab"; edit: boolean }
-    | { kind: "settings"; tileId: string; v: number } | { kind: "icon"; tileId: string; itemId: string }
+    | { kind: "settings"; tileId: string; v: number }
     | { kind: "camPick"; tileId: string } | { kind: "camera"; tileId: string; id?: string }
     | { kind: "lightbox"; cameraId: string } | { kind: "imported"; tileId: string; ids: string[] } | null
   >(null);
@@ -273,13 +273,13 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
     return out;
   }, [drag, tab]);
 
-  const saveTab = (v: { name: string; emoji: string; template: "blank" | "cameras" | "copy" }) => {
+  const saveTab = (v: { name: string; emoji: string; icon: string; iconRef: string; template: "blank" | "cameras" | "copy" }) => {
     if (dlg?.kind !== "tab") return;
-    if (dlg.edit && tab) update(tabs => tabs.map(t => (t.id === tab.id ? { ...t, name: v.name, emoji: v.emoji } : t)));
+    if (dlg.edit && tab) update(tabs => tabs.map(t => (t.id === tab.id ? { ...t, name: v.name, emoji: v.emoji, icon: v.icon, iconRef: v.iconRef } : t)));
     else {
-      let fresh: Tab = { id: uid(), name: v.name, emoji: v.emoji, groups: [newGroup("Group")] };
+      let fresh: Tab = { id: uid(), name: v.name, emoji: v.emoji, icon: v.icon, iconRef: v.iconRef, groups: [newGroup("Group")] };
       if (v.template === "cameras") fresh = { ...fresh, groups: [newGroup("Outdoor", "grid3"), newGroup("Indoor", "grid3")] };
-      if (v.template === "copy" && tab) fresh = { ...cloneTab(tab, v.name), emoji: v.emoji };
+      if (v.template === "copy" && tab) fresh = { ...cloneTab(tab, v.name), emoji: v.emoji, icon: v.icon, iconRef: v.iconRef };
       update(tabs => [...tabs, fresh]);
       setTabId(fresh.id);
     }
@@ -312,7 +312,7 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
         <nav className="tabs" aria-label="Tabs">
           {doc.tabs.map(t => (
             <button key={t.id} className={`tab ${t.id === tab.id && !page ? "on" : ""}`} onClick={() => { if (page) closeSettings(); if (t.id === tab.id && editing && !page) setDlg({ kind: "tab", edit: true }); else setTabId(t.id); }}>
-              {t.emoji ? `${t.emoji} ` : ""}{t.name}{editing && t.id === tab.id && !page ? <span className="tedit"> ✎</span> : null}
+              {t.icon ? <Icon icon={t.icon} iconRef={t.iconRef} name={t.name} size={16} className="tab-ic" /> : t.emoji ? `${t.emoji} ` : ""}{t.name}{editing && t.id === tab.id && !page ? <span className="tedit"> ✎</span> : null}
             </button>
           ))}
           {editing && <button className="tab add" aria-label="New tab" onClick={() => setDlg({ kind: "tab", edit: false })}>＋</button>}
@@ -323,7 +323,7 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
         {isAdmin && editing && !page && <button className="btn" onClick={() => setDlg({ kind: "connections" })}>Connections</button>}
         {isAdmin && !page && <button className={`btn ${editing ? "pri" : ""}`} onClick={async () => { if (editing) await retry(); setEditing(!editing); }}>{editing ? "✓ Done" : "✎ Edit"}</button>}
         {isAdmin && !editing && <button className={`btn ${page ? "pri" : ""}`} aria-label="Settings" title="Settings" onClick={() => (page ? closeSettings() : gotoSettings("general"))}>⚙{page ? " Close" : ""}</button>}
-        {!editing && <button className="btn" title="Your account" onClick={() => setDlg({ kind: "account" })}>{me.username}</button>}
+        {!editing && <button className="btn" title="Your account" onClick={() => setDlg({ kind: "account" })}>{me.icon ? <Icon icon={me.icon} iconRef={me.iconRef} name={me.username} size={16} className="tab-ic" /> : null}{me.username}</button>}
         {!editing && !auth.kiosk && <button className="btn" onClick={async () => { await api.post("/api/auth/logout"); void refreshAuth(); }}>Sign out</button>}
       </header>}
       {kiosk && !auth.kiosk && <button className="kiosk-exit" aria-label="Leave wall display" title="Leave wall display mode" onClick={() => { setDevKiosk(""); window.location.href = "/?kiosk=0"; }}>✕</button>}
@@ -372,21 +372,10 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
         <TileSettings key={dlg.v} tile={settingsTile} integrations={integrations} cameras={cameras}
           onAddCameras={() => setDlg({ kind: "camera", tileId: settingsTile.id })}
           onChange={patch => setConfig(settingsTile.id, patch)}
-          onPickIcon={itemId => setDlg({ kind: "icon", tileId: settingsTile.id, itemId })}
           onOpenConnections={() => setDlg({ kind: "connections" })} onClose={() => setDlg(null)} />
       )}
-      {dlg?.kind === "icon" && settingsTile && (
-        <IconPicker
-          current={((settingsTile.config.items ?? []) as any[]).find(i => i.id === dlg.itemId)?.icon}
-          onClose={() => setDlg({ kind: "settings", tileId: dlg.tileId, v: 1 })}
-          onPick={icon => {
-            const items = ((settingsTile.config.items ?? []) as any[]).map(i => (i.id === dlg.itemId ? { ...i, icon } : i));
-            setConfig(settingsTile.id, { items });
-            setDlg({ kind: "settings", tileId: dlg.tileId, v: Date.now() });
-          }} />
-      )}
       {dlg?.kind === "camPick" && settingsTile && (
-        <CameraPick cameras={cameras} current={settingsTile.config.cameraId as string | undefined}
+        <CameraPick cameras={cameras} onChanged={refreshCameras} current={settingsTile.config.cameraId as string | undefined}
           config={settingsTile.config} onConfig={patch => setConfig(settingsTile.id, patch)}
           onPick={id => { setConfig(settingsTile.id, { cameraId: id }); setDlg(null); }}
           onAdd={() => setDlg({ kind: "camera", tileId: settingsTile.id })}

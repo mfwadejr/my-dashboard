@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { getMeta, setMeta, tx, type DB } from "./db.js";
+import { cleanIcon, cleanIconRef } from "./icons.js";
 
 export const TILE_TYPES = ["clock", "notes", "launcher", "sonarr", "radarr", "sabnzbd", "camera", "camerawall", "prowlarr", "sitegateway", "unifi-network", "unifi-protect", "unifi-pdu","unifi-unas","mediacalendar", "unraid", "zimaos"] as const;
 export const GROUP_LAYOUTS = ["free", "grid2", "grid3", "grid4", "spot", "row"] as const;
 
 export interface TileDoc { id: string; type: string; w: number; h: number; x?: number; y?: number; config: Record<string, unknown> }
 export interface GroupDoc { id: string; name: string; layout: string; collapsed: boolean; pack?: boolean; tiles: TileDoc[] }
-export interface TabDoc { id: string; name: string; emoji: string; groups: GroupDoc[] }
+export interface TabDoc { id: string; name: string; emoji: string; icon: string; iconRef: string; groups: GroupDoc[] }
 export interface DashboardDoc { revision: number; tabs: TabDoc[] }
 
 export class ValidationError extends Error {}
@@ -19,13 +20,13 @@ const LIMITS = { tabs: 30, groupsPerTab: 20, tilesPerGroup: 80, config: 20_000 }
 
 export function readDashboard(db: DB): DashboardDoc {
   const revision = Number(getMeta(db, "dashboard_revision") ?? 0);
-  const tabs = db.prepare("SELECT id, name, emoji FROM tabs ORDER BY position").all() as unknown as Array<{ id: string; name: string; emoji: string }>;
+  const tabs = db.prepare("SELECT id, name, emoji, icon, icon_ref FROM tabs ORDER BY position").all() as unknown as Array<{ id: string; name: string; emoji: string; icon: string; icon_ref: string }>;
   const groups = db.prepare("SELECT id, tab_id, name, layout, collapsed, pack FROM groups ORDER BY position").all() as unknown as Array<{ id: string; tab_id: string; name: string; layout: string; collapsed: number; pack: number }>;
   const tiles = db.prepare("SELECT id, group_id, type, w, h, x, y, config FROM tiles ORDER BY position").all() as unknown as Array<{ id: string; group_id: string; type: string; w: number; h: number; x: number | null; y: number | null; config: string }>;
   return {
     revision,
     tabs: tabs.map(tab => ({
-      id: tab.id, name: tab.name, emoji: tab.emoji,
+      id: tab.id, name: tab.name, emoji: tab.emoji, icon: tab.icon, iconRef: tab.icon_ref,
       groups: groups.filter(g => g.tab_id === tab.id).map(g => ({
         id: g.id, name: g.name, layout: g.layout, collapsed: Boolean(g.collapsed), pack: Boolean(g.pack),
         tiles: tiles.filter(t => t.group_id === g.id).map(t => ({ id: t.id, type: t.type, w: t.w, h: t.h, ...(t.x !== null && t.y !== null ? { x: t.x, y: t.y } : {}), config: JSON.parse(t.config) }))
@@ -52,6 +53,16 @@ function id(value: unknown, field: string): string {
   return value;
 }
 
+/** Icon values on a tile (and on Launcher items) must be saved files; anything else is dropped. */
+function cleanConfigIcons(config: Record<string, any>): void {
+  const fix = (o: Record<string, any>) => {
+    if ("icon" in o) { const icon = cleanIcon(o.icon); if (icon) { o.icon = icon; o.iconRef = cleanIconRef(o.iconRef); } else { delete o.icon; delete o.iconRef; } }
+    else if ("iconRef" in o) delete o.iconRef;
+  };
+  fix(config);
+  if (Array.isArray(config.items)) for (const it of config.items) if (it && typeof it === "object" && !Array.isArray(it)) fix(it);
+}
+
 /** Validate and normalize an untrusted dashboard document from the browser. */
 export function validateDashboard(input: unknown): { tabs: TabDoc[] } {
   if (!input || typeof input !== "object" || !Array.isArray((input as any).tabs)) throw new ValidationError("tabs are required");
@@ -68,6 +79,7 @@ export function validateDashboard(input: unknown): { tabs: TabDoc[] } {
       id: unique(id(rawTab.id, "Tab"), "tab"),
       name: str(rawTab.name, "Tab name", 60, false),
       emoji: str(rawTab.emoji ?? "", "Tab emoji", 8),
+      icon: cleanIcon(rawTab.icon), iconRef: cleanIcon(rawTab.icon) ? cleanIconRef(rawTab.iconRef) : "",
       groups: rawTab.groups.map((rawGroup: any): GroupDoc => {
         if (!Array.isArray(rawGroup?.tiles)) throw new ValidationError("Each group needs a tiles list");
         if (rawGroup.tiles.length > LIMITS.tilesPerGroup) throw new ValidationError("Too many tiles in a group");
@@ -82,6 +94,7 @@ export function validateDashboard(input: unknown): { tabs: TabDoc[] } {
             if (!(TILE_TYPES as readonly string[]).includes(type)) throw new ValidationError(`Unknown tile type "${type}"`);
             const config = rawTile.config ?? {};
             if (typeof config !== "object" || Array.isArray(config)) throw new ValidationError("Tile config must be an object");
+            cleanConfigIcons(config);
             if (JSON.stringify(config).length > LIMITS.config) throw new ValidationError("Tile config is too large");
             const placed = rawTile.x !== undefined && rawTile.x !== null && rawTile.y !== undefined && rawTile.y !== null;
             return { id: unique(id(rawTile.id, "Tile"), "tile"), type, w: int(rawTile.w, "Tile width", 1, 6), h: int(rawTile.h, "Tile height", 1, 8), ...(placed ? { x: int(rawTile.x, "Tile column", 0, 11), y: int(rawTile.y, "Tile row", 0, 400) } : {}), config };
@@ -99,11 +112,11 @@ export function writeDashboard(db: DB, doc: { tabs: TabDoc[] }, baseRevision: nu
     const current = Number(getMeta(db, "dashboard_revision") ?? 0);
     if (baseRevision !== current) throw new ConflictError(readDashboard(db));
     db.exec("DELETE FROM tiles; DELETE FROM groups; DELETE FROM tabs;");
-    const insTab = db.prepare("INSERT INTO tabs (id, name, emoji, position) VALUES (?, ?, ?, ?)");
+    const insTab = db.prepare("INSERT INTO tabs (id, name, emoji, icon, icon_ref, position) VALUES (?, ?, ?, ?, ?, ?)");
     const insGroup = db.prepare("INSERT INTO groups (id, tab_id, name, layout, collapsed, pack, position) VALUES (?, ?, ?, ?, ?, ?, ?)");
     const insTile = db.prepare("INSERT INTO tiles (id, group_id, type, w, h, x, y, position, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     doc.tabs.forEach((tab, ti) => {
-      insTab.run(tab.id, tab.name, tab.emoji, ti);
+      insTab.run(tab.id, tab.name, tab.emoji, tab.icon, tab.iconRef, ti);
       tab.groups.forEach((group, gi) => {
         insGroup.run(group.id, tab.id, group.name, group.layout, group.collapsed ? 1 : 0, group.pack ? 1 : 0, gi);
         group.tiles.forEach((tile, ki) => insTile.run(tile.id, group.id, tile.type, tile.w, tile.h, tile.x ?? null, tile.y ?? null, ki, JSON.stringify(tile.config)));
@@ -127,7 +140,7 @@ export function seedIfEmpty(db: DB): void {
   const tile = (type: string, w: number, h: number, config: Record<string, unknown> = {}): TileDoc => ({ id: randomUUID().slice(0, 12), type, w, h, config });
   writeDashboard(db, {
     tabs: [{
-      id: "home", name: "Home", emoji: "",
+      id: "home", name: "Home", emoji: "", icon: "", iconRef: "",
       groups: [{
         id: "main", name: "", layout: "free", collapsed: false,
         tiles: [

@@ -10,7 +10,7 @@ export const SHARE_COOKIE = "hb_share";
 export const SESSION_MS = 30 * 24 * 3600 * 1000;
 
 export type Role = "admin" | "viewer";
-export interface User { id: string; username: string; role: Role; disabled: boolean; createdAt: number; totpEnabled: boolean }
+export interface User { id: string; username: string; role: Role; disabled: boolean; createdAt: number; totpEnabled: boolean; icon: string; iconRef: string }
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
@@ -31,8 +31,8 @@ export const hashToken = sha;
 
 // ---- accounts
 
-interface UserRow { id: string; username: string; role: string; pass_hash: string; disabled: number; created_at: number; totp_enabled: number }
-const toUser = (r: UserRow): User => ({ id: r.id, username: r.username, role: r.role === "admin" ? "admin" : "viewer", disabled: Boolean(r.disabled), createdAt: r.created_at, totpEnabled: Boolean(r.totp_enabled) });
+interface UserRow { id: string; username: string; role: string; pass_hash: string; disabled: number; created_at: number; totp_enabled: number; icon: string; icon_ref: string }
+const toUser = (r: UserRow): User => ({ id: r.id, username: r.username, role: r.role === "admin" ? "admin" : "viewer", disabled: Boolean(r.disabled), createdAt: r.created_at, totpEnabled: Boolean(r.totp_enabled), icon: r.icon, iconRef: r.icon_ref });
 
 export const isSetUp = (db: DB): boolean => Boolean(db.prepare("SELECT 1 FROM users WHERE role = 'admin' LIMIT 1").get());
 
@@ -62,19 +62,19 @@ export async function createUser(db: DB, input: { username: string; password: st
 }
 
 export const getUser = (db: DB, id: string): User | undefined => {
-  const row = db.prepare("SELECT id, username, role, pass_hash, disabled, created_at, totp_enabled FROM users WHERE id = ?").get(id) as UserRow | undefined;
+  const row = db.prepare("SELECT id, username, role, pass_hash, disabled, created_at, totp_enabled, icon, icon_ref FROM users WHERE id = ?").get(id) as UserRow | undefined;
   return row ? toUser(row) : undefined;
 };
 
 export const listUsers = (db: DB): User[] =>
-  (db.prepare("SELECT id, username, role, pass_hash, disabled, created_at, totp_enabled FROM users ORDER BY created_at").all() as unknown as UserRow[]).map(toUser);
+  (db.prepare("SELECT id, username, role, pass_hash, disabled, created_at, totp_enabled, icon, icon_ref FROM users ORDER BY created_at").all() as unknown as UserRow[]).map(toUser);
 
 export const adminCount = (db: DB): number => (db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled = 0").get() as { n: number }).n;
 
 let dummy: Promise<string> | undefined;
 /** Returns the user when the name and password match; takes about the same time either way so names can't be probed. */
 export async function authenticate(db: DB, username: string, password: string): Promise<User | null> {
-  const row = db.prepare("SELECT id, username, role, pass_hash, disabled, created_at, totp_enabled FROM users WHERE username = ?").get(username) as UserRow | undefined;
+  const row = db.prepare("SELECT id, username, role, pass_hash, disabled, created_at, totp_enabled, icon, icon_ref FROM users WHERE username = ?").get(username) as UserRow | undefined;
   if (!row) { await verifyPassword(password, await (dummy ??= hashPassword("not-a-real-password"))); return null; }
   const ok = await verifyPassword(password, row.pass_hash);
   return ok && !row.disabled ? toUser(row) : null;

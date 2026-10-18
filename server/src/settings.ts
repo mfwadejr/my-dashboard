@@ -33,6 +33,9 @@ export interface Settings {
   idleMinutes: number;
   maintenance: "weekly" | "monthly" | "off";
   updateCheck: boolean;
+  /** How much of the icon libraries is kept on this server, and whether an administrator has looked at that choice yet. */
+  iconTier: "search" | "cached" | "mirror-single" | "mirror-full";
+  iconReviewed: boolean;
 }
 
 export const LOG_SOURCES = ["security", "settings", "connection", "camera", "share", "backup", "system", "api"] as const;
@@ -46,7 +49,7 @@ export const DEFAULTS = (): Settings => ({
   theme: "dark", accent: "#6c8cff", kioskCycleSeconds: 0, metricsDays: 365, logDays: 30, autoBackup: true, backupKeep: 7,
   backupEvery: "daily", backupTime: "02:00", backupDay: 0,
   historyDetailDays: 2, historyHourlyDays: 30, logWarnDays: 90, logErrorDays: 365, logMaxMB: 100, logAreaDays: {}, logExportBeforePrune: false,
-  logVerbosity: "normal", idleMinutes: 0, maintenance: "weekly", updateCheck: false
+  logVerbosity: "normal", idleMinutes: 0, maintenance: "weekly", updateCheck: false, iconTier: "cached", iconReviewed: false
 });
 
 export function validTimezone(tz: string): boolean {
@@ -112,6 +115,8 @@ export function updateSettings(db: DB, input: Record<string, unknown>): { settin
       case "idleMinutes": { const n = Number(value); next.idleMinutes = n === 0 ? 0 : whole(n, 5, 1440, "Idle sign-out"); break; }
       case "maintenance": next.maintenance = oneOf(value, ["weekly", "monthly", "off"], "Maintenance"); break;
       case "updateCheck": next.updateCheck = Boolean(value); break;
+      case "iconTier": next.iconTier = oneOf(value, ["search", "cached", "mirror-single", "mirror-full"] as const, "Icon library storage"); break;
+      case "iconReviewed": next.iconReviewed = Boolean(value); break;
       case "autoBackup": next.autoBackup = Boolean(value); break;
       case "backupKeep": next.backupKeep = whole(value, 1, 120, "Backups to keep"); break;
       case "backupEvery": next.backupEvery = oneOf(value, ["6h", "daily", "weekly"], "Backup schedule"); break;
@@ -120,6 +125,7 @@ export function updateSettings(db: DB, input: Record<string, unknown>): { settin
       default: throw new ValidationError(`Unknown setting "${key}"`);
     }
   }
+  if ("iconTier" in input && !("iconReviewed" in input)) next.iconReviewed = true;
   const touchedHistory = ["historyDetailDays", "historyHourlyDays", "metricsDays"].some(k => k in input);
   if (touchedHistory && next.historyDetailDays >= next.historyHourlyDays) throw new ValidationError("Hourly history must be kept longer than detailed history");
   if (touchedHistory && next.historyHourlyDays >= next.metricsDays) throw new ValidationError("Daily history must be kept longer than hourly history");

@@ -13,8 +13,10 @@ export function settingsRoutes(app: FastifyInstance, d: Deps): void {
 
   app.put("/api/settings", { preHandler: access.requireAdmin }, async (request, reply) => {
     try {
-      const { settings, changed } = updateSettings(db, (request.body ?? {}) as Record<string, unknown>);
+      const body = (request.body ?? {}) as Record<string, unknown>, wasReviewed = getSettings(db).iconReviewed;
+      const { settings, changed } = updateSettings(db, body);
       if (changed.length) logEvent(db, "info", "settings", `${access.actor(request)} changed settings: ${changed.join(", ")}`);
+      if ("iconTier" in body && (changed.includes("iconTier") || !wasReviewed)) d.icons.applyTier();
       return settings;
     } catch (error) {
       if (error instanceof ValidationError) return reply.code(400).send({ error: error.message });

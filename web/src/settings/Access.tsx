@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, assignIcon } from "../api";
+import { IconButton } from "../components/IconButton";
 import { Confirm, Pill } from "../widgets/common";
 import { fmtDateTime, useSettings } from "../settings";
 import type { AuthUser } from "../types";
 import { TwoFactorPanel } from "../dialogs/TwoFactor";
 import { Row, Section, deviceName, useNotice, useSaveSettings } from "./ui";
 
-interface UserRow { id: string; username: string; role: "admin" | "viewer"; disabled: boolean; createdAt: number; totpEnabled?: boolean }
+interface UserRow { id: string; username: string; role: "admin" | "viewer"; disabled: boolean; createdAt: number; totpEnabled?: boolean; icon?: string; iconRef?: string }
 interface SessionRow { id: string; username: string; createdAt: number; lastSeen: number; ip: string; ua: string; current: boolean }
 
 export function Access({ me, onSignedOut }: { me: AuthUser; onSignedOut: () => void }) {
@@ -38,7 +39,7 @@ export function Access({ me, onSignedOut }: { me: AuthUser; onSignedOut: () => v
         <div className="rows">
           {users.map(u => (
             <div key={u.id} className="srow">
-              <div><b>{u.username}</b> {u.id === me.id && <Pill tone="mute">you</Pill>} <Pill tone={u.role === "admin" ? "warn" : "mute"}>{u.role}</Pill> {u.disabled && <Pill tone="bad">switched off</Pill>} {u.totpEnabled && <Pill tone="ok">2-step</Pill>}
+              <div className="who"><IconButton icon={u.icon} iconRef={u.iconRef} name={u.username} size={22} onChange={async v => { await assignIcon("account", u.id, v); load(); }} /><b>{u.username}</b> {u.id === me.id && <Pill tone="mute">you</Pill>} <Pill tone={u.role === "admin" ? "warn" : "mute"}>{u.role}</Pill> {u.disabled && <Pill tone="bad">switched off</Pill>} {u.totpEnabled && <Pill tone="ok">2-step</Pill>}
                 <div className="sub">Added {new Date(u.createdAt).toLocaleDateString([], { timeZone: settings.timezone })}</div>
                 {reset?.id === u.id && <div className="row wrapme" style={{ marginTop: 6 }}><input type="password" autoComplete="new-password" placeholder="New password" value={reset.pw} onChange={e => setReset({ id: u.id, pw: e.target.value })} /><button className="btn sm pri" disabled={reset.pw.length < 8} onClick={() => void patch(u.id, { password: reset.pw }, `Password reset for "${u.username}".`)}>Set</button><button className="btn sm" onClick={() => setReset(null)}>Cancel</button></div>}
               </div>

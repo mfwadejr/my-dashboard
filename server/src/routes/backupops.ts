@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -8,6 +8,8 @@ import { nextSlot, validSnapshotName, verifyJsonBackup } from "../backup.js";
 import { ValidationError } from "../dashboard.js";
 import { logEvent, stampNow } from "../db.js";
 import type { Deps } from "../deps.js";
+import { createComplete, looksLikeComplete, readComplete, verifyComplete } from "../complete.js";
+import { checkImage } from "../icons.js";
 import { getSettings } from "../settings.js";
 import { looksLikeSqlite, verifyDatabaseFile, type VerifyReport } from "../verify.js";
 
@@ -54,8 +56,16 @@ export function backupOpsRoutes(app: FastifyInstance, d: Deps): void {
     try {
       const report = await withUpload<VerifyReport>(request, MAX_DB, async (file, fields, filename) => {
         const size = statSync(file).size;
+        if (looksLikeComplete(file)) {
+          const open = await readComplete(file, tmpRoot);
+          try {
+            const r = verifyComplete(d, open, size, tmpRoot);
+            logEvent(db, r.ok ? "info" : "error", "backup", `${access.actor(request)} verified an uploaded Complete backup (${filename}): ${r.summary}`);
+            return r;
+          } finally { rmSync(open.dir, { recursive: true, force: true }); }
+        }
         if (looksLikeSqlite(file)) {
-          const r = verifyDatabaseFile(file, d.box, tmpRoot, Date.now());
+          const r = verifyDatabaseFile(file, d.box, tmpRoot, Date.now(), { hasIcon: n => Boolean(d.icons.file(n)) });
           logEvent(db, r.ok ? "info" : "error", "backup", `${access.actor(request)} verified an uploaded database file (${filename}): ${r.summary}`);
           return r;
         }
@@ -72,13 +82,44 @@ export function backupOpsRoutes(app: FastifyInstance, d: Deps): void {
     } catch (error) { return bad(reply, error); }
   });
 
+  /** One download: the database and every saved icon it uses. */
+  app.get("/api/backup/complete", admin, async (request, reply) => {
+    if (!throttleHit(db, "complete", 8, 3600_000)) return reply.code(429).send({ error: "Too many Complete backups in a short time. Try again later." });
+    try {
+      const made = await createComplete(d);
+      logEvent(db, "info", "backup", `${access.actor(request)} downloaded a Complete backup (${Math.max(1, Math.round(made.size / 1024))} KB)`);
+      const stream = createReadStream(made.file);
+      stream.on("close", () => rmSync(made.dir, { recursive: true, force: true }));
+      return reply.header("Content-Type", "application/gzip").header("Content-Disposition", `attachment; filename="${made.name}"`).header("Content-Length", made.size).send(stream);
+    } catch (error) { return reply.code(500).send({ error: `The Complete backup could not be made (${error instanceof Error ? error.message : error}).` }); }
+  });
+
   // ---- add a database copy that came from somewhere else
 
   app.post("/api/backup/snapshots/upload", admin, async (request, reply) => {
     try {
-      return await withUpload(request, MAX_DB, (file, _fields, filename) => {
-        if (!looksLikeSqlite(file)) throw new ValidationError("That is not a Homebase database copy");
-        const report = verifyDatabaseFile(file, d.box, tmpRoot, Date.now());
+      return await withUpload(request, MAX_DB, async (file, _fields, filename) => {
+        if (looksLikeComplete(file)) {
+          const open = await readComplete(file, tmpRoot);
+          try {
+            const report = verifyComplete(d, open, statSync(file).size, tmpRoot);
+            if (!report.restorable) throw new ValidationError(report.checks.find(c => c.status === "fail")?.detail ?? "That backup is damaged");
+            mkdirSync(backups.dir, { recursive: true });
+            let name = `homebase-${stampNow()}-uploaded.db`;
+            for (let n = 0; existsSync(join(backups.dir, name)); n++) name = `homebase-${stampNow()}-uploaded-${"abcdefghij"[n % 10]}.db`;
+            copyFileSync(open.dbFile, join(backups.dir, name));
+            // The icons go in now (those already here are kept), so restoring the database later finds them.
+            let icons = 0;
+            for (const [n, buf] of open.icons) {
+              try { checkImage(buf, ["svg", "png", "jpg", "gif", "webp"]); const target = d.icons.usedPath(`used/${n}`); if (!existsSync(target)) { mkdirSync(d.icons.usedDir, { recursive: true }); writeFileSync(target, buf); icons++; } } catch { /* skipped: not a safe image */ }
+            }
+            backups.verify(name);
+            logEvent(db, "info", "backup", `${access.actor(request)} added a Complete backup (${filename}): the database copy is in the list as ${name}, ${icons} icon(s) were put back`);
+            return { name, report, icons };
+          } finally { rmSync(open.dir, { recursive: true, force: true }); }
+        }
+        if (!looksLikeSqlite(file)) throw new ValidationError("That is not a Homebase database copy or Complete backup");
+        const report = verifyDatabaseFile(file, d.box, tmpRoot, Date.now(), { hasIcon: n => Boolean(d.icons.file(n)) });
         if (!report.restorable) throw new ValidationError(report.checks.find(c => c.status === "fail")?.detail ?? "That copy is damaged");
         mkdirSync(backups.dir, { recursive: true });
         let name = `homebase-${stampNow()}-uploaded.db`;

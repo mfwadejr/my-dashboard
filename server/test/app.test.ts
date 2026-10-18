@@ -46,7 +46,7 @@ test("setup rejects short passwords, then sets one and signs in; a second setup 
   assert.match(set, /SameSite=Strict/i);
   cookie = set.split(";")[0];
   assert.equal((await call("POST", "/api/auth/setup", { password: "another password" })).statusCode, 409);
-  assert.deepEqual((await call("GET", "/api/auth/status")).json(), { setup: true, authed: true, user: { id: (await call("GET", "/api/users")).json()[0].id, username: "admin", role: "admin", totp: false }, kiosk: false });
+  assert.deepEqual((await call("GET", "/api/auth/status")).json(), { setup: true, authed: true, user: { id: (await call("GET", "/api/users")).json()[0].id, username: "admin", role: "admin", totp: false, icon: "" }, kiosk: false });
   const dash = (await call("GET", "/api/dashboard")).json();
   assert.equal(dash.tabs[0].name, "Home");
 });
@@ -326,7 +326,7 @@ test("cameras: only safe sources, passwords hidden, synced to go2rtc, orphan cle
 
   const anon = cookie; cookie = viewerCookie;
   const publicList = (await call("GET", "/api/cameras")).json();
-  assert.deepEqual(publicList, [{ id, name: "Front Door" }]);
+  assert.deepEqual(publicList, [{ id, name: "Front Door", icon: "", iconRef: "" }]);
   assert.equal((await call("GET", `/api/cameras/${id}`)).statusCode, 403);
   cookie = anon;
   const masked = (await call("GET", `/api/cameras/${id}`)).json();
@@ -394,21 +394,25 @@ test("icons: uploads are validated by content, served sandboxed, and require sig
 
   const ok = await upload("a.png", png, "image/png");
   assert.equal(ok.statusCode, 200);
-  const id = ok.json().id as string;
-  assert.match(id, /^[a-f0-9]{24}\.png$/);
+  const icon = ok.json().icon as string;
+  assert.match(icon, /^used\/upload-[a-f0-9]{24}\.png\?v=[a-f0-9]{10}$/);
+  assert.equal((await ctx.app.inject({ method: "GET", url: `/icons/${icon}` })).statusCode, 200);
   const fake = await upload("evil.png", Buffer.from("<html><script>alert(1)</script></html>"), "image/png");
   assert.equal(fake.statusCode, 400);
-  const svg = await upload("x.svg", Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'), "image/svg+xml");
-  assert.equal(svg.statusCode, 200);
-  const served = await ctx.app.inject({ method: "GET", url: `/icons/${svg.json().id}` });
+  const bad = await upload("x.svg", Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'), "image/svg+xml");
+  assert.equal(bad.statusCode, 400, "an SVG that can run scripts is refused");
+  const good = await upload("x.svg", Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><circle cx="1" cy="1" r="1"/></svg>'), "image/svg+xml");
+  assert.equal(good.statusCode, 200);
+  const served = await ctx.app.inject({ method: "GET", url: `/icons/${good.json().icon}` });
   assert.equal(served.headers["content-type"], "image/svg+xml");
   assert.match(String(served.headers["content-security-policy"]), /sandbox/);
   assert.equal(served.headers["x-content-type-options"], "nosniff");
   assert.equal((await ctx.app.inject({ method: "GET", url: "/icons/..%2f..%2fsecret.key" })).statusCode, 404);
+  assert.equal((await ctx.app.inject({ method: "GET", url: "/icons/used/..%2f..%2fsecret.key" })).statusCode, 404);
   const anon = cookie; cookie = viewerCookie;
   assert.equal((await upload("a.png", png, "image/png")).statusCode, 403);
   cookie = anon;
-  assert.ok(readdirSync(join(dir, "icons")).length === 2);
+  assert.equal(readdirSync(join(dir, "icons", "used")).filter(f => !f.endsWith(".part")).length, 2);
 });
 
 test("server-sent events deliver current snapshots to a new viewer", async () => {

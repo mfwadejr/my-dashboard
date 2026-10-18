@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
-import { existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { MASK, maskUrlSecret } from "./crypto.js";
 import { ValidationError, readDashboard, validateDashboard, writeDashboard, type TabDoc } from "./dashboard.js";
@@ -7,6 +7,8 @@ import { getMeta, logEvent, setMeta, snapshotInto, tx } from "./db.js";
 import { INTEGRATION_TYPES } from "./integrations/registry.js";
 import { normalizeUrl } from "./integrations/http.js";
 import { DEFAULTS, getSettings, updateSettings } from "./settings.js";
+import { checkImage, cleanIcon, cleanIconRef } from "./icons.js";
+import { referencedIcons } from "./iconuse.js";
 import { versionInfo } from "./version.js";
 import { finish, verifyDatabaseFile, type Check, type VerifyReport } from "./verify.js";
 import type { Deps } from "./deps.js";
@@ -15,13 +17,15 @@ export const BACKUP_FORMAT = "homebase-backup";
 const FORMAT_VERSION = 1;
 
 interface SecretsBlob { kdf: "scrypt-aes-256-gcm"; salt: string; iv: string; tag: string; data: string }
-interface BackupIntegration { id: string; type: string; name: string; url: string; intervalSeconds: number; enabled: boolean; insecureTls: boolean }
-interface BackupCamera { id: string; name: string; main: string; sub: string }
+interface BackupIntegration { id: string; type: string; name: string; url: string; intervalSeconds: number; enabled: boolean; insecureTls: boolean; icon?: string; iconRef?: string }
+interface BackupCamera { id: string; name: string; main: string; sub: string; icon?: string; iconRef?: string }
 export interface BackupFile {
   format: typeof BACKUP_FORMAT; formatVersion: number; app: { version: string; commit: string }; createdAt: string;
   settings: Record<string, unknown>; dashboard: { tabs: TabDoc[] }; integrations: BackupIntegration[]; cameras: BackupCamera[]; secrets: SecretsBlob | null;
   /** True when the protected section also carries the accounts (names, roles and password hashes). */
   accountsIncluded?: boolean;
+  /** The saved icon files the rest of the file refers to, by name ("used/..."), as base64. */
+  icons?: Record<string, string>;
 }
 type AccountRow = Record<string, string | number | null>;
 interface SecretsPlain { integrations: Record<string, string>; cameras: Record<string, { main: string; sub: string }>; accounts?: AccountRow[] }
@@ -47,14 +51,14 @@ export function exportBackup(deps: Deps, passphrase: string, opts: { accounts?: 
   const secrets: SecretsPlain = { integrations: {}, cameras: {} };
   const integrations: BackupIntegration[] = store.listIntegrations().map(r => {
     try { if (store.apiKeyOf(r)) secrets.integrations[r.id] = store.apiKeyOf(r); } catch { /* unreadable key: restore will ask for it again */ }
-    return { id: r.id, type: r.type, name: r.name, url: r.url, intervalSeconds: r.interval_s, enabled: Boolean(r.enabled), insecureTls: Boolean(r.insecure_tls) };
+    return { id: r.id, type: r.type, name: r.name, url: r.url, intervalSeconds: r.interval_s, enabled: Boolean(r.enabled), insecureTls: Boolean(r.insecure_tls), icon: r.icon, iconRef: r.icon_ref };
   });
   const cameras: BackupCamera[] = [];
-  for (const { id } of store.listCameras()) {
+  for (const { id, icon, iconRef } of store.listCameras()) {
     const cam = store.getCamera(id);
     if (!cam) continue;
     secrets.cameras[id] = { main: cam.main, sub: cam.sub };
-    cameras.push({ id, name: cam.name, main: maskUrlSecret(cam.main), sub: maskUrlSecret(cam.sub) });
+    cameras.push({ id, name: cam.name, main: maskUrlSecret(cam.main), sub: maskUrlSecret(cam.sub), icon, iconRef });
   }
   if (opts.accounts) {
     // A two-factor secret is sealed with this install's key in the database; inside the passphrase-protected section it travels as plain text so it can be re-sealed anywhere.
@@ -64,7 +68,17 @@ export function exportBackup(deps: Deps, passphrase: string, opts: { accounts?: 
     });
   }
   const v = versionInfo();
+  // The icon pictures travel inside the file (up to 6 MB of them), so a restore on a new machine does not lose them.
+  const icons: Record<string, string> = {}; let iconBytes = 0;
+  for (const name of referencedIcons(db)) {
+    if (!name.startsWith("used/")) continue;
+    const file = deps.icons.file(name); if (!file) continue;
+    const buf = readFileSync(file);
+    if (iconBytes + buf.length > 6_000_000) break;
+    iconBytes += buf.length; icons[name] = buf.toString("base64");
+  }
   return {
+    icons,
     accountsIncluded: Boolean(opts.accounts),
     format: BACKUP_FORMAT, formatVersion: FORMAT_VERSION, app: { version: v.version, commit: v.commit }, createdAt: new Date().toISOString(),
     settings: { ...getSettings(db) }, dashboard: { tabs: readDashboard(db).tabs }, integrations, cameras,
@@ -83,19 +97,32 @@ export function parseBackup(raw: unknown): BackupFile {
   const integrations = (Array.isArray(f.integrations) ? f.integrations : []).map((i: any): BackupIntegration => {
     if (!ID.test(String(i?.id))) throw new ValidationError("A connection in the file has an invalid id");
     if (!INTEGRATION_TYPES[String(i.type)]) throw new ValidationError(`The file has a connection of an unknown type "${String(i.type).slice(0, 30)}"`);
-    return { id: String(i.id), type: String(i.type), name: String(i.name ?? "").trim().slice(0, 60) || INTEGRATION_TYPES[i.type].name, url: normalizeUrl(String(i.url ?? "")), intervalSeconds: Math.max(5, Math.min(3600, Math.round(Number(i.intervalSeconds)) || 15)), enabled: Boolean(i.enabled), insecureTls: Boolean(i.insecureTls) };
+    return { id: String(i.id), type: String(i.type), name: String(i.name ?? "").trim().slice(0, 60) || INTEGRATION_TYPES[i.type].name, url: normalizeUrl(String(i.url ?? "")), intervalSeconds: Math.max(5, Math.min(3600, Math.round(Number(i.intervalSeconds)) || 15)), enabled: Boolean(i.enabled), insecureTls: Boolean(i.insecureTls), icon: cleanIcon(i.icon), iconRef: cleanIcon(i.icon) ? cleanIconRef(i.iconRef) : "" };
   });
   const cameras = (Array.isArray(f.cameras) ? f.cameras : []).map((c: any): BackupCamera => {
     if (!CAM_ID.test(String(c?.id))) throw new ValidationError("A camera in the file has an invalid id");
-    return { id: String(c.id), name: String(c.name ?? "").trim().slice(0, 60) || "Camera", main: String(c.main ?? "").slice(0, 600), sub: String(c.sub ?? "").slice(0, 600) };
+    return { id: String(c.id), name: String(c.name ?? "").trim().slice(0, 60) || "Camera", main: String(c.main ?? "").slice(0, 600), sub: String(c.sub ?? "").slice(0, 600), icon: cleanIcon(c.icon), iconRef: cleanIcon(c.icon) ? cleanIconRef(c.iconRef) : "" };
   });
   const s = f.secrets as SecretsBlob | null | undefined;
   if (s && !(typeof s.salt === "string" && typeof s.iv === "string" && typeof s.tag === "string" && typeof s.data === "string")) throw new ValidationError("The protected section of the file is damaged");
   return {
     format: BACKUP_FORMAT, formatVersion: f.formatVersion, app: { version: String(f.app?.version ?? "?"), commit: String(f.app?.commit ?? "?") }, createdAt: String(f.createdAt ?? ""),
     settings: f.settings && typeof f.settings === "object" ? f.settings : {}, dashboard: dash, integrations, cameras, secrets: s ?? null,
-    accountsIncluded: Boolean(f.accountsIncluded && s)
+    accountsIncluded: Boolean(f.accountsIncluded && s),
+    icons: parseIcons(f.icons)
   };
+}
+
+const ICON_NAME = /^used\/[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.(?:svg|png|jpg|gif|webp)$/;
+/** The pictures in a file, checked one by one; anything that is not a safe image of a known name is dropped. */
+function parseIcons(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [name, data] of Object.entries(raw as Record<string, unknown>).slice(0, 400)) {
+    if (!ICON_NAME.test(name) || typeof data !== "string") continue;
+    try { const buf = Buffer.from(data, "base64"); checkImage(buf, [name.split(".").pop()!]); out[name] = data; } catch { /* not a usable picture */ }
+  }
+  return out;
 }
 
 export interface ImportOptions { mode: "replace" | "merge"; passphrase?: string; skipSecrets?: boolean; restoreAccounts?: boolean; actorId?: string }
@@ -116,7 +143,7 @@ export function previewBackup(deps: Deps, file: BackupFile, opts: ImportOptions)
   return {
     accounts,
     createdAt: file.createdAt, app: file.app, encrypted: Boolean(file.secrets), passphraseOk,
-    tabs: file.dashboard.tabs.length, groups, tiles, integrations: file.integrations.length, cameras: file.cameras.length,
+    tabs: file.dashboard.tabs.length, groups, tiles, integrations: file.integrations.length, cameras: file.cameras.length, icons: Object.keys(file.icons ?? {}).length,
     adds: {
       tabs: replace ? file.dashboard.tabs.length : file.dashboard.tabs.filter(t => !haveTab.has(t.id)).length,
       integrations: replace ? file.integrations.length : file.integrations.filter(i => !haveInt.has(i.id)).length,
@@ -141,6 +168,14 @@ export async function applyBackup(deps: Deps, file: BackupFile, opts: ImportOpti
   }
   if (replace || accountRows) { try { deps.backups.create("before-import"); } catch { /* keep going: the import itself is validated already */ } }
 
+  // The pictures first, so nothing that refers to one is ever without it. A merge keeps pictures that are already here.
+  let iconsWritten = 0;
+  for (const [name, data] of Object.entries(file.icons ?? {})) {
+    const target = deps.icons.usedPath(name);
+    if (!replace && existsSync(target)) continue;
+    mkdirSync(deps.icons.usedDir, { recursive: true });
+    writeFileSync(target, Buffer.from(data, "base64")); iconsWritten++;
+  }
   const oldInt = store.listIntegrations().map(i => i.id), oldCam = store.listCameras().map(c => c.id);
   const needsSecrets: string[] = [];
   const added = { integrations: 0, cameras: 0, tabs: 0 }, skipped = { integrations: 0, cameras: 0, tabs: 0 };
@@ -162,7 +197,7 @@ export async function applyBackup(deps: Deps, file: BackupFile, opts: ImportOpti
       const real = secrets.cameras[c.id];
       const main = real?.main ?? c.main, sub = real?.sub ?? c.sub;
       if (main.includes(`:${MASK}@`) || sub.includes(`:${MASK}@`)) needsSecrets.push(`${c.name} (camera password)`);
-      store.importCamera({ id: c.id, name: c.name, main, sub });
+      store.importCamera({ id: c.id, name: c.name, main, sub, icon: c.icon, iconRef: c.iconRef });
       camIds.add(c.id); added.cameras++;
     }
   });
@@ -193,7 +228,7 @@ export async function applyBackup(deps: Deps, file: BackupFile, opts: ImportOpti
   await go2rtc.reconcile().catch(() => {});
   logEvent(db, "info", "backup", `${actor} imported a backup (${opts.mode}): ${added.tabs} tab(s), ${added.integrations} connection(s), ${added.cameras} camera(s) added${needsSecrets.length ? `; ${needsSecrets.length} still need a password or key` : ""}`);
   if (accountsResult) logEvent(db, "warn", "security", `${actor} restored accounts from a backup (${opts.mode}): ${accountsResult.added} added, ${accountsResult.removed} removed`);
-  return { mode: opts.mode, added, skipped, needsSecrets, accounts: accountsResult };
+  return { mode: opts.mode, added, skipped, needsSecrets, accounts: accountsResult, icons: iconsWritten };
 }
 
 const ROLE = new Set(["admin", "viewer"]);
@@ -256,6 +291,17 @@ export function verifyJsonBackup(deps: Deps, raw: unknown, passphrase: string, s
   const tiles = file.dashboard.tabs.reduce((n, t) => n + t.groups.reduce((m, g) => m + g.tiles.length, 0), 0);
   Object.assign(counts, { tabs: file.dashboard.tabs.length, tiles, connections: file.integrations.length, cameras: file.cameras.length });
   add("counts", "What it contains", "pass", `${counts.tabs} tab(s), ${tiles} tile(s), ${counts.connections} connection(s), ${counts.cameras} camera(s).`);
+  {
+    const wanted = new Set<string>();
+    const note = (v: unknown) => { if (typeof v === "string" && v.startsWith("used/")) wanted.add(v.split("?")[0]); };
+    for (const t of file.dashboard.tabs) { note(t.icon); for (const g of t.groups) for (const tile of g.tiles) { const c = tile.config as { icon?: string; items?: Array<{ icon?: string }> }; note(c.icon); for (const it of Array.isArray(c.items) ? c.items : []) note(it?.icon); } }
+    for (const x of [...file.integrations, ...file.cameras]) note(x.icon);
+    counts.icons = Object.keys(file.icons ?? {}).length;
+    const missing = [...wanted].filter(n => !(file.icons ?? {})[n]);
+    if (!wanted.size) add("icons", "Icons", "pass", "No saved icons are used.");
+    else if (!missing.length) add("icons", "Icons", "pass", `All ${wanted.size} icon(s) the file uses are inside it.`);
+    else add("icons", "Icons", "warn", `${missing.length} of ${wanted.size} icon(s) the file uses are not inside it, so those show letters until they are chosen again.`);
+  }
   const created = Date.parse(file.createdAt);
   if (file.secrets) {
     if (!passphrase) add("secrets", "Saved passwords and keys", "warn", "This file is protected. Enter its passphrase to check that it opens.");
@@ -364,7 +410,7 @@ export class AutoBackup {
   verify(name: string): VerifyReport {
     const d = this.deps();
     const file = join(this.dir, name);
-    const report = verifyDatabaseFile(file, d.box, this.tmp);
+    const report = verifyDatabaseFile(file, d.box, this.tmp, null, { hasIcon: n => Boolean(d.icons.file(n)) });
     this.setNote(name, { ts: Date.now(), ok: report.ok, summary: report.summary });
     return report;
   }
