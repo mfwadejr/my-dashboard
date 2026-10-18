@@ -86,6 +86,7 @@ export function verifyDatabaseFile(file: string, box: SecretBox, tmpRoot: string
     const tryOpen = (v: unknown) => { if (typeof v !== "string" || !v) return; sealed++; try { box.open(v); } catch { bad++; } };
     try { for (const r of db.prepare("SELECT secret FROM integrations").all() as Array<{ secret: string }>) tryOpen(r.secret); } catch { /* table missing */ }
     try { for (const r of db.prepare("SELECT main_url, sub_url FROM cameras").all() as Array<{ main_url: string; sub_url: string }>) { tryOpen(r.main_url); tryOpen(r.sub_url); } } catch { /* table missing */ }
+    try { for (const r of db.prepare("SELECT totp_secret FROM users").all() as Array<{ totp_secret: string }>) tryOpen(r.totp_secret); } catch { /* older layout */ }
     try { for (const r of db.prepare("SELECT token_sealed FROM shares").all() as Array<{ token_sealed: string }>) tryOpen(r.token_sealed); } catch { /* table missing */ }
     if (sealed === 0) add("secrets", "Saved passwords and keys", "pass", "Nothing in this copy is stored encrypted, so there is nothing to open.");
     else if (bad === 0) add("secrets", "Saved passwords and keys", "pass", `All ${sealed} saved password(s) and key(s) open with this Homebase's encryption key.`);

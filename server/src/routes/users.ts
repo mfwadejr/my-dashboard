@@ -40,6 +40,11 @@ export function userRoutes(app: FastifyInstance, d: Deps): void {
       const notes: string[] = [];
       if (role !== target.role) notes.push(`role is now ${role}`);
       if (disabled !== target.disabled) notes.push(disabled ? "account switched off" : "account switched on");
+      if (b.resetTwoFactor === true) {
+        db.prepare("UPDATE users SET totp_secret = '', totp_enabled = 0, totp_last = 0, recovery = '[]' WHERE id = ?").run(id);
+        destroyUserSessions(db, id, me?.kind === "user" && me.user.id === id ? me.hash : undefined);
+        notes.push("two-factor sign-in was reset");
+      }
       if (b.password !== undefined && b.password !== "") { await setUserPassword(db, id, checkPassword(b.password)); notes.push("password was reset"); destroyUserSessions(db, id); }
       else if (disabled || role !== target.role) destroyUserSessions(db, id, me?.kind === "user" && me.user.id === id ? me.hash : undefined);
       if (notes.length) logEvent(db, "info", "security", `${access.actor(request)} changed "${target.username}": ${notes.join(", ")}`);

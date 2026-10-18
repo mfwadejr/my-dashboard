@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID, scrypt as scryptCb, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import type { DB } from "./db.js";
+import { getMeta, type DB } from "./db.js";
 import { ValidationError } from "./dashboard.js";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
@@ -10,7 +10,7 @@ export const SHARE_COOKIE = "hb_share";
 export const SESSION_MS = 30 * 24 * 3600 * 1000;
 
 export type Role = "admin" | "viewer";
-export interface User { id: string; username: string; role: Role; disabled: boolean; createdAt: number }
+export interface User { id: string; username: string; role: Role; disabled: boolean; createdAt: number; totpEnabled: boolean }
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
@@ -31,8 +31,8 @@ export const hashToken = sha;
 
 // ---- accounts
 
-interface UserRow { id: string; username: string; role: string; pass_hash: string; disabled: number; created_at: number }
-const toUser = (r: UserRow): User => ({ id: r.id, username: r.username, role: r.role === "admin" ? "admin" : "viewer", disabled: Boolean(r.disabled), createdAt: r.created_at });
+interface UserRow { id: string; username: string; role: string; pass_hash: string; disabled: number; created_at: number; totp_enabled: number }
+const toUser = (r: UserRow): User => ({ id: r.id, username: r.username, role: r.role === "admin" ? "admin" : "viewer", disabled: Boolean(r.disabled), createdAt: r.created_at, totpEnabled: Boolean(r.totp_enabled) });
 
 export const isSetUp = (db: DB): boolean => Boolean(db.prepare("SELECT 1 FROM users WHERE role = 'admin' LIMIT 1").get());
 
@@ -62,19 +62,19 @@ export async function createUser(db: DB, input: { username: string; password: st
 }
 
 export const getUser = (db: DB, id: string): User | undefined => {
-  const row = db.prepare("SELECT id, username, role, pass_hash, disabled, created_at FROM users WHERE id = ?").get(id) as UserRow | undefined;
+  const row = db.prepare("SELECT id, username, role, pass_hash, disabled, created_at, totp_enabled FROM users WHERE id = ?").get(id) as UserRow | undefined;
   return row ? toUser(row) : undefined;
 };
 
 export const listUsers = (db: DB): User[] =>
-  (db.prepare("SELECT id, username, role, pass_hash, disabled, created_at FROM users ORDER BY created_at").all() as unknown as UserRow[]).map(toUser);
+  (db.prepare("SELECT id, username, role, pass_hash, disabled, created_at, totp_enabled FROM users ORDER BY created_at").all() as unknown as UserRow[]).map(toUser);
 
 export const adminCount = (db: DB): number => (db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled = 0").get() as { n: number }).n;
 
 let dummy: Promise<string> | undefined;
 /** Returns the user when the name and password match; takes about the same time either way so names can't be probed. */
 export async function authenticate(db: DB, username: string, password: string): Promise<User | null> {
-  const row = db.prepare("SELECT id, username, role, pass_hash, disabled, created_at FROM users WHERE username = ?").get(username) as UserRow | undefined;
+  const row = db.prepare("SELECT id, username, role, pass_hash, disabled, created_at, totp_enabled FROM users WHERE username = ?").get(username) as UserRow | undefined;
   if (!row) { await verifyPassword(password, await (dummy ??= hashPassword("not-a-real-password"))); return null; }
   const ok = await verifyPassword(password, row.pass_hash);
   return ok && !row.disabled ? toUser(row) : null;
@@ -95,7 +95,7 @@ export function createSession(db: DB, userId: string, ip: string, ua: string, tt
   const token = randomBytes(32).toString("base64url");
   const now = Date.now();
   db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(now);
-  db.prepare("INSERT INTO sessions (token_hash, created_at, expires_at, user_id, last_seen, ip, ua) VALUES (?, ?, ?, ?, ?, ?, ?)").run(sha(token), now, now + ttlMs, userId, now, ip.slice(0, 64), ua.slice(0, 200));
+  db.prepare("INSERT INTO sessions (token_hash, created_at, expires_at, user_id, last_seen, ip, ua, last_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(sha(token), now, now + ttlMs, userId, now, ip.slice(0, 64), ua.slice(0, 200), now);
   return token;
 }
 
@@ -104,13 +104,34 @@ export type SessionInfo = { kind: "user"; user: User; hash: string } | { kind: "
 export function lookupSession(db: DB, token: string | undefined): SessionInfo | undefined {
   if (!token) return undefined;
   const hash = sha(token), now = Date.now();
-  const row = db.prepare("SELECT user_id, expires_at, last_seen FROM sessions WHERE token_hash = ?").get(hash) as { user_id: string; expires_at: number; last_seen: number } | undefined;
+  const row = db.prepare("SELECT user_id, expires_at, last_seen, last_active FROM sessions WHERE token_hash = ?").get(hash) as { user_id: string; expires_at: number; last_seen: number; last_active: number } | undefined;
   if (!row || row.expires_at <= now) return undefined;
   if (now - row.last_seen > 60_000) db.prepare("UPDATE sessions SET last_seen = ? WHERE token_hash = ?").run(now, hash);
   if (row.user_id.startsWith("share:")) return { kind: "share", shareId: row.user_id.slice(6), hash };
   const user = getUser(db, row.user_id);
-  return user && !user.disabled ? { kind: "user", user, hash } : undefined;
+  if (!user || user.disabled) return undefined;
+  // Idle sign-out applies to admins only, so a viewer account on a wall display is never signed out.
+  const idle = idleMs(db);
+  if (idle > 0 && user.role === "admin" && now - (row.last_active || row.last_seen) > idle) {
+    db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(hash);
+    return undefined;
+  }
+  return { kind: "user", user, hash };
 }
+
+let idleCache: { db: DB; at: number; ms: number } | null = null;
+function idleMs(db: DB): number {
+  const now = Date.now();
+  if (idleCache && idleCache.db === db && now - idleCache.at < 5000) return idleCache.ms;
+  let ms = 0;
+  try { ms = Math.max(0, Number(JSON.parse(getMeta(db, "settings") ?? "{}").idleMinutes) || 0) * 60_000; } catch { /* off */ }
+  idleCache = { db, at: now, ms };
+  return ms;
+}
+export const forgetIdle = () => { idleCache = null; };
+
+/** Marks a session as used by a person (a change request, or the page reporting real clicks and key presses). */
+export const touchSession = (db: DB, hash: string): void => { db.prepare("UPDATE sessions SET last_active = ? WHERE token_hash = ?").run(Date.now(), hash); };
 
 export const destroySession = (db: DB, token: string | undefined): void => { if (token) db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha(token)); };
 export const destroyUserSessions = (db: DB, userId: string, exceptHash?: string): void => { db.prepare("DELETE FROM sessions WHERE user_id = ? AND token_hash != ?").run(userId, exceptHash ?? ""); };

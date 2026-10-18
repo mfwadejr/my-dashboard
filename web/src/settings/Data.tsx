@@ -4,13 +4,16 @@ import { Confirm } from "../widgets/common";
 import { useSettings } from "../settings";
 import { Copies } from "./Copies";
 import { Destinations } from "./Destinations";
+import { Maintenance } from "./Maintenance";
+import { Retention } from "./Retention";
+import type { IntegrationInfo } from "../types";
 import { Row, Section, download, useNotice } from "./ui";
 
 interface Preview { accounts: { included: boolean; count: number | null; youWillBeSignedOut: boolean }; createdAt: string; app: { version: string; commit: string }; encrypted: boolean; passphraseOk: boolean | null; tabs: number; groups: number; tiles: number; integrations: number; cameras: number; adds: { tabs: number; integrations: number; cameras: number }; removes: { integrations: number; cameras: number; tabs: number } | null }
 interface Result { accounts: { added: number; removed: number; signedOut: boolean } | null; mode: string; added: { tabs: number; integrations: number; cameras: number }; skipped: { tabs: number; integrations: number; cameras: number }; needsSecrets: string[] }
 interface Stats { key: { source: "env" | "file"; file: string | null } }
 
-export function Data({ onRestored }: { onRestored: () => void }) {
+export function Data({ onRestored, integrations }: { onRestored: () => void; integrations: IntegrationInfo[] }) {
   const { settings } = useSettings();
   const ex = useNotice(), im = useNotice(), ky = useNotice(), dz = useNotice();
   const [pass, setPass] = useState("");
@@ -122,6 +125,8 @@ export function Data({ onRestored }: { onRestored: () => void }) {
 
       <Copies />
       <Destinations />
+      <Retention integrations={integrations} />
+      <Maintenance />
 
       <Section title="Encryption key" hint="Passwords and API keys in the database are encrypted with a key kept in a separate file. If you lose that file, saved passwords and keys cannot be read, even from a good database copy. Keep a copy of it somewhere safe, apart from your backups.">
         {stats?.key.source === "env" ? <p className="sub">The key comes from the HOMEBASE_SECRET_KEY setting of the container, so there is no file to download. Keep that value safe.</p> : (

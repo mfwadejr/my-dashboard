@@ -46,7 +46,7 @@ test("setup rejects short passwords, then sets one and signs in; a second setup 
   assert.match(set, /SameSite=Strict/i);
   cookie = set.split(";")[0];
   assert.equal((await call("POST", "/api/auth/setup", { password: "another password" })).statusCode, 409);
-  assert.deepEqual((await call("GET", "/api/auth/status")).json(), { setup: true, authed: true, user: { id: (await call("GET", "/api/users")).json()[0].id, username: "admin", role: "admin" }, kiosk: false });
+  assert.deepEqual((await call("GET", "/api/auth/status")).json(), { setup: true, authed: true, user: { id: (await call("GET", "/api/users")).json()[0].id, username: "admin", role: "admin", totp: false }, kiosk: false });
   const dash = (await call("GET", "/api/dashboard")).json();
   assert.equal(dash.tabs[0].name, "Home");
 });

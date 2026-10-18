@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { api, uid } from "./api";
-import { useAuth, useCameras, useDashboard, useIntegrations, useLive, usePref, type AuthState } from "./hooks";
+import { useAuth, useCameras, useDashboard, useIdleGuard, useIntegrations, useLive, usePref, type AuthState } from "./hooks";
 import { SettingsProvider, useSettings } from "./settings";
 import { SignIn } from "./pages/SignIn";
 import { ShareView } from "./pages/ShareView";
@@ -95,6 +95,7 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
     return () => window.removeEventListener("hashchange", f);
   }, []);
   useEffect(() => { if (!isAdmin || kiosk) setEditing(false); }, [isAdmin, kiosk]);
+  useIdleGuard(isAdmin, kiosk, settings.idleMinutes, () => void refreshAuth());
 
   // The server was updated while this page was open: a banner here, an automatic reload on a wall display.
   const outdated = Boolean(serverBuild && serverBuild !== __BUILD__);

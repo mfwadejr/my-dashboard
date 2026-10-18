@@ -6,10 +6,9 @@ const ORPHAN_GRACE_MS = 10 * 60_000;
 
 export function dashboardRoutes(app: FastifyInstance, d: Deps): void {
   const { db, store, go2rtc, shares } = d;
-  const requireAuth = d.access.requireAdmin;
   app.get("/api/dashboard", async () => readDashboard(db));
 
-  app.put("/api/dashboard", { preHandler: requireAuth }, async (request, reply) => {
+  app.put("/api/dashboard", { preHandler: d.access.requireWriter }, async (request, reply) => {
     const body = (request.body ?? {}) as { baseRevision?: unknown };
     try {
       const doc = validateDashboard(request.body);

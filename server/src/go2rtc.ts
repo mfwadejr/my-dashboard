@@ -44,10 +44,10 @@ export class Go2rtc {
 
   get enabled(): boolean { return this.base !== null; }
 
-  private async call(method: string, path: string, params: Record<string, string>): Promise<Response> {
+  private async call(method: string, path: string, params: Record<string, string>, timeoutMs = 5000): Promise<Response> {
     const url = new URL(this.base + path);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-    return fetch(url, { method, signal: AbortSignal.timeout(5000) });
+    return fetch(url, { method, signal: AbortSignal.timeout(timeoutMs) });
   }
 
   async upsert(cameraId: string): Promise<void> {
@@ -92,9 +92,9 @@ export class Go2rtc {
     await this.call("DELETE", "/api/streams", { src: subName(cameraId) }).catch(() => {});
   }
 
-  async status(): Promise<{ enabled: boolean; reachable: boolean }> {
+  async status(timeoutMs = 5000): Promise<{ enabled: boolean; reachable: boolean }> {
     if (!this.base) return { enabled: false, reachable: false };
-    try { const res = await this.call("GET", "/api/streams", {}); return { enabled: true, reachable: res.ok }; }
+    try { const res = await this.call("GET", "/api/streams", {}, timeoutMs); return { enabled: true, reachable: res.ok }; }
     catch { return { enabled: true, reachable: false }; }
   }
 

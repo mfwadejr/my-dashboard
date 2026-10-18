@@ -9,12 +9,14 @@ export interface IntegrationType { id: string; name: string; description: string
 export interface CameraInfo { id: string; name: string }
 export interface IconHit { ref: string; label: string; preview: string }
 
-export interface AuthUser { id: string; username: string; role: "admin" | "viewer" }
+export interface AuthUser { id: string; username: string; role: "admin" | "viewer"; totp?: boolean }
 export interface SettingsDoc {
   name: string; timezone: string; clock: "auto" | "12" | "24"; weekStart: "sun" | "mon"; publicBaseUrl: string;
   theme: "dark" | "light" | "glass" | "auto"; accent: string; kioskCycleSeconds: number;
   metricsDays: number; logDays: number; autoBackup: boolean; backupKeep: number;
   backupEvery: "6h" | "daily" | "weekly"; backupTime: string; backupDay: number;
+  historyDetailDays: number; historyHourlyDays: number; logWarnDays: number; logErrorDays: number; logMaxMB: number; logAreaDays: Record<string, number>;
+  logExportBeforePrune: boolean; logVerbosity: "quiet" | "normal" | "detailed"; idleMinutes: number; maintenance: "weekly" | "monthly" | "off"; updateCheck: boolean;
 }
 export interface AboutInfo { version: string; commit: string; built: string | null; node: string; build: string; startedAt: number; publicPort: number | null; go2rtc: boolean }
 

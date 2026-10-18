@@ -1,4 +1,5 @@
-import { getMeta, setMeta, type DB } from "./db.js";
+import { forgetIdle } from "./auth.js";
+import { forgetVerbosity, getMeta, setMeta, type DB } from "./db.js";
 import { ValidationError } from "./dashboard.js";
 
 export interface Settings {
@@ -17,7 +18,24 @@ export interface Settings {
   backupEvery: "6h" | "daily" | "weekly";
   backupTime: string;
   backupDay: number;
+  /** Graph history: every reading for this many days, then hourly averages, then daily averages up to metricsDays. */
+  historyDetailDays: number;
+  historyHourlyDays: number;
+  logWarnDays: number;
+  logErrorDays: number;
+  /** Size cap for the log in megabytes (0 = no cap). Oldest lines go first. */
+  logMaxMB: number;
+  /** Per-area retention in days, overriding the severity rules, e.g. { security: 365 }. */
+  logAreaDays: Record<string, number>;
+  logExportBeforePrune: boolean;
+  logVerbosity: "quiet" | "normal" | "detailed";
+  /** Minutes without activity before an admin is signed out (0 = never). */
+  idleMinutes: number;
+  maintenance: "weekly" | "monthly" | "off";
+  updateCheck: boolean;
 }
+
+export const LOG_SOURCES = ["security", "settings", "connection", "camera", "share", "backup", "system", "api"] as const;
 
 export function defaultTimezone(): string {
   try { return process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; }
@@ -25,8 +43,10 @@ export function defaultTimezone(): string {
 
 export const DEFAULTS = (): Settings => ({
   name: "Homebase", timezone: defaultTimezone(), clock: "auto", weekStart: "sun", publicBaseUrl: "",
-  theme: "dark", accent: "#6c8cff", kioskCycleSeconds: 0, metricsDays: 14, logDays: 30, autoBackup: true, backupKeep: 7,
-  backupEvery: "daily", backupTime: "02:00", backupDay: 0
+  theme: "dark", accent: "#6c8cff", kioskCycleSeconds: 0, metricsDays: 365, logDays: 30, autoBackup: true, backupKeep: 7,
+  backupEvery: "daily", backupTime: "02:00", backupDay: 0,
+  historyDetailDays: 2, historyHourlyDays: 30, logWarnDays: 90, logErrorDays: 365, logMaxMB: 100, logAreaDays: {}, logExportBeforePrune: false,
+  logVerbosity: "normal", idleMinutes: 0, maintenance: "weekly", updateCheck: false
 });
 
 export function validTimezone(tz: string): boolean {
@@ -70,8 +90,28 @@ export function updateSettings(db: DB, input: Record<string, unknown>): { settin
         next.publicBaseUrl = t; break;
       }
       case "kioskCycleSeconds": { const n = Number(value); next.kioskCycleSeconds = n === 0 ? 0 : whole(n, 5, 3600, "Page cycling"); break; }
-      case "metricsDays": next.metricsDays = whole(value, 1, 365, "Metrics history"); break;
-      case "logDays": next.logDays = whole(value, 1, 730, "Log history"); break;
+      case "metricsDays": next.metricsDays = whole(value, 1, 3650, "Graph history"); break;
+      case "historyDetailDays": next.historyDetailDays = whole(value, 1, 30, "Detailed history"); break;
+      case "historyHourlyDays": next.historyHourlyDays = whole(value, 2, 365, "Hourly history"); break;
+      case "logDays": next.logDays = whole(value, 1, 3650, "Log history"); break;
+      case "logWarnDays": next.logWarnDays = whole(value, 1, 3650, "Warning history"); break;
+      case "logErrorDays": next.logErrorDays = whole(value, 1, 3650, "Error history"); break;
+      case "logMaxMB": next.logMaxMB = value === 0 || value === "0" ? 0 : whole(value, 5, 5000, "Log size limit"); break;
+      case "logAreaDays": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) throw new ValidationError("Per-area retention must be a list of areas and days");
+        const out: Record<string, number> = {};
+        for (const [area, days] of Object.entries(value as Record<string, unknown>)) {
+          if (!(LOG_SOURCES as readonly string[]).includes(area)) throw new ValidationError(`"${area.slice(0, 30)}" is not a log area`);
+          if (days === null || days === 0 || days === "") continue;
+          out[area] = whole(days, 1, 3650, `Days for ${area}`);
+        }
+        next.logAreaDays = out; break;
+      }
+      case "logExportBeforePrune": next.logExportBeforePrune = Boolean(value); break;
+      case "logVerbosity": next.logVerbosity = oneOf(value, ["quiet", "normal", "detailed"], "Log detail"); break;
+      case "idleMinutes": { const n = Number(value); next.idleMinutes = n === 0 ? 0 : whole(n, 5, 1440, "Idle sign-out"); break; }
+      case "maintenance": next.maintenance = oneOf(value, ["weekly", "monthly", "off"], "Maintenance"); break;
+      case "updateCheck": next.updateCheck = Boolean(value); break;
       case "autoBackup": next.autoBackup = Boolean(value); break;
       case "backupKeep": next.backupKeep = whole(value, 1, 120, "Backups to keep"); break;
       case "backupEvery": next.backupEvery = oneOf(value, ["6h", "daily", "weekly"], "Backup schedule"); break;
@@ -80,7 +120,10 @@ export function updateSettings(db: DB, input: Record<string, unknown>): { settin
       default: throw new ValidationError(`Unknown setting "${key}"`);
     }
   }
-  const changed = (Object.keys(next) as Array<keyof Settings>).filter(k => next[k] !== current[k]);
-  if (changed.length) setMeta(db, "settings", JSON.stringify(next));
+  const touchedHistory = ["historyDetailDays", "historyHourlyDays", "metricsDays"].some(k => k in input);
+  if (touchedHistory && next.historyDetailDays >= next.historyHourlyDays) throw new ValidationError("Hourly history must be kept longer than detailed history");
+  if (touchedHistory && next.historyHourlyDays >= next.metricsDays) throw new ValidationError("Daily history must be kept longer than hourly history");
+  const changed = (Object.keys(next) as Array<keyof Settings>).filter(k => JSON.stringify(next[k]) !== JSON.stringify(current[k]));
+  if (changed.length) { setMeta(db, "settings", JSON.stringify(next)); forgetVerbosity(); forgetIdle(); }
   return { settings: next, changed };
 }

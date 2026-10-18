@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { checkUserPassword, throttleHit } from "../auth.js";
@@ -7,7 +7,10 @@ import { ValidationError, resetDashboard } from "../dashboard.js";
 import { logEvent } from "../db.js";
 import type { Deps } from "../deps.js";
 import { INTEGRATION_TYPES } from "../integrations/registry.js";
+import { diskInfo } from "../maintenance.js";
+import { ARCHIVE_NAME, lastPrune, listArchives, runRetention } from "../retention.js";
 import { getSettings } from "../settings.js";
+import { lastUpdateCheck } from "../updatecheck.js";
 import { STARTED_AT, versionInfo } from "../version.js";
 
 /** Turns what a person typed into a full-text query: every word must appear, and the last may be a prefix. */
@@ -57,7 +60,7 @@ export function adminRoutes(app: FastifyInstance, d: Deps): void {
       };
     });
     const relay = await go2rtc.status();
-    return { version: versionInfo(), uptimeS: Math.round((now - STARTED_AT) / 1000), connections, cameras: store.listCameras().length, relay, publicPort: config.publicPort && config.publicPort > 0 ? config.publicPort : null, clients: d.hub.size };
+    return { disk: diskInfo(config.dataDir), maintenance: d.maintenance.last(), update: getSettings(db).updateCheck ? lastUpdateCheck(db) : null, version: versionInfo(), uptimeS: Math.round((now - STARTED_AT) / 1000), connections, cameras: store.listCameras().length, relay, publicPort: config.publicPort && config.publicPort > 0 ? config.publicPort : null, clients: d.hub.size };
   });
 
   // ---- log
@@ -91,17 +94,40 @@ export function adminRoutes(app: FastifyInstance, d: Deps): void {
     const one = (sql: string) => (db.prepare(sql).get() as { n: number; t?: number | null });
     const m = db.prepare("SELECT COUNT(*) AS n, MIN(ts) AS t FROM metrics").get() as { n: number; t: number | null };
     const snaps = backups.list();
+    const res = (r: number) => one(`SELECT COUNT(*) AS n FROM metrics WHERE res = ${r}`).n;
+    const arch = listArchives(config.dataDir);
     return {
+      readingsByDetail: { detailed: res(0), hourly: res(1), daily: res(2) }, lastPrune: lastPrune(db),
+      logBytes: Number(one("SELECT COALESCE(SUM(LENGTH(message) + LENGTH(source) + 48), 0) AS n FROM events").n), archives: { count: arch.length, bytes: arch.reduce((n, x) => n + x.size, 0) },
+      disk: diskInfo(config.dataDir),
       dbBytes: dbBytes(), metricsRows: m.n, oldestMetric: m.t, eventRows: one("SELECT COUNT(*) AS n FROM events").n,
       snapshots: snaps.length, snapshotBytes: snaps.reduce((n, s) => n + s.size, 0),
       key: { source: box.source, file: box.source === "file" ? box.keyFile : null }
     };
   });
 
+  /** Applies the history and log rules now. With { dryRun: true } it only says what would happen. */
   app.post("/api/data/prune", admin, async request => {
-    const r = poller.prune();
-    logEvent(db, "info", "backup", `${access.actor(request)} cleared old history: ${r.metrics} reading(s) and ${r.events} log line(s) removed`);
+    if ((request.body as { dryRun?: boolean } | undefined)?.dryRun) return runRetention(db, config.dataDir, { dryRun: true });
+    const r = runRetention(db, config.dataDir);
+    logEvent(db, "info", "backup", `${access.actor(request)} applied the history and log rules: ${r.metrics} graph reading(s) and ${r.events} log line(s) removed${r.archive ? `, old log lines saved to ${r.archive}` : ""}`);
     return r;
+  });
+
+  app.get("/api/logs/archives", admin, async () => listArchives(config.dataDir));
+  app.get("/api/logs/archives/:name", admin, async (request, reply) => {
+    const { name } = request.params as { name: string };
+    const file = join(config.dataDir, "log-archive", name);
+    if (!ARCHIVE_NAME.test(name) || !existsSync(file)) return reply.code(404).send({ error: "Not found" });
+    return reply.header("Content-Type", "text/csv; charset=utf-8").header("Content-Disposition", `attachment; filename="${name}"`).send(createReadStream(file));
+  });
+  app.delete("/api/logs/archives/:name", admin, async (request, reply) => {
+    const { name } = request.params as { name: string };
+    const file = join(config.dataDir, "log-archive", name);
+    if (!ARCHIVE_NAME.test(name) || !existsSync(file)) return reply.code(404).send({ error: "Not found" });
+    unlinkSync(file);
+    logEvent(db, "info", "backup", `${access.actor(request)} deleted the log archive ${name}`);
+    return { ok: true };
   });
 
   app.post("/api/data/clear-metrics", admin, async (request) => {

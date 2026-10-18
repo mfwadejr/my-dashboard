@@ -92,7 +92,7 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
     }
   });
 
-  app.post("/api/integrations/:id/actions/:action", { preHandler: requireAuth }, async (request, reply) => {
+  app.post("/api/integrations/:id/actions/:action", { preHandler: access.requireWriter }, async (request, reply) => {
     const { id, action } = request.params as { id: string; action: string };
     const row = store.getIntegration(id);
     const impl = row && INTEGRATION_TYPES[row.type];

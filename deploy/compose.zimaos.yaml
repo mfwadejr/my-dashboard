@@ -20,6 +20,8 @@ services:
       # TRUST_PROXY: "true"
       # Optional: your own encryption key for stored API keys / camera URLs (otherwise one is generated in /data).
       # HOMEBASE_SECRET_KEY: a-long-random-string
+      # Locked out of two-factor sign-in with no recovery codes? Set this to the username, start once, then remove it.
+      # HOMEBASE_RESET_2FA: admin
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

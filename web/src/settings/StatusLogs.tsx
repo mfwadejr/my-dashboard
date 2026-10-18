@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Pill } from "../widgets/common";
 import { fmtDateTime, useSettings } from "../settings";
+import { DiskNote } from "./Maintenance";
 import { Section, ago } from "./ui";
 
 interface Conn { id: string; name: string; type: string; typeName: string; enabled: boolean; ok: boolean | null; lastOk: number | null; checkedAt: number | null; error: string | null; ms: number | null; uptime24h: number | null; strip: Array<number | null> }
-interface Status { version: { version: string; commit: string; build: string }; uptimeS: number; connections: Conn[]; cameras: number; relay: { enabled: boolean; reachable: boolean }; publicPort: number | null; clients: number }
+interface Status { disk?: { total: number; free: number; freePct: number; level: "ok" | "low" | "critical" } | null; maintenance?: { ts: number; ok: boolean; message: string } | null; update?: { aheadBy: number; upToDate: boolean; error: string | null; commits: Array<{ sha: string; message: string }> } | null; version: { version: string; commit: string; build: string }; uptimeS: number; connections: Conn[]; cameras: number; relay: { enabled: boolean; reachable: boolean }; publicPort: number | null; clients: number }
 interface Line { id: number; ts: number; level: "info" | "warn" | "error"; source: string; message: string }
 
 const dur = (s: number) => (s < 3600 ? `${Math.max(1, Math.round(s / 60))} min` : s < 86400 ? `${(s / 3600).toFixed(1)} h` : `${(s / 86400).toFixed(1)} days`);
@@ -18,6 +19,9 @@ function StatusPanel({ openConnections }: { openConnections: () => void }) {
   if (!st) return <p className="sub">Loading…</p>;
   return (
     <>
+      <DiskNote disk={st.disk} />
+      {st.maintenance && !st.maintenance.ok && <p className="error" role="alert">The last database upkeep found a problem: {st.maintenance.message} Save a backup copy and look at the log.</p>}
+      {st.update && !st.update.error && !st.update.upToDate && <p className="ok-note">An update is available: {st.update.aheadBy} newer change(s) on GitHub{st.update.commits[0] ? `, newest “${st.update.commits[0].message}”` : ""}. Pull the new image to get it.</p>}
       <div className="statline">
         <span>Homebase <b>{st.version.version}</b> ({st.version.commit})</span><span>Running for <b>{dur(st.uptimeS)}</b></span>
         <span>Camera relay: <Pill tone={!st.relay.enabled ? "mute" : st.relay.reachable ? "ok" : "bad"}>{!st.relay.enabled ? "not set up" : st.relay.reachable ? "reachable" : "unreachable"}</Pill></span>

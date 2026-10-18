@@ -56,7 +56,13 @@ export function exportBackup(deps: Deps, passphrase: string, opts: { accounts?: 
     secrets.cameras[id] = { main: cam.main, sub: cam.sub };
     cameras.push({ id, name: cam.name, main: maskUrlSecret(cam.main), sub: maskUrlSecret(cam.sub) });
   }
-  if (opts.accounts) secrets.accounts = db.prepare("SELECT * FROM users ORDER BY created_at").all() as unknown as AccountRow[];
+  if (opts.accounts) {
+    // A two-factor secret is sealed with this install's key in the database; inside the passphrase-protected section it travels as plain text so it can be re-sealed anywhere.
+    secrets.accounts = (db.prepare("SELECT * FROM users ORDER BY created_at").all() as unknown as AccountRow[]).map(r => {
+      if (r.totp_secret) { try { return { ...r, totp_secret: deps.box.open(String(r.totp_secret)) }; } catch { return { ...r, totp_secret: "", totp_enabled: 0 }; } }
+      return { ...r };
+    });
+  }
   const v = versionInfo();
   return {
     accountsIncluded: Boolean(opts.accounts),
@@ -211,6 +217,7 @@ function applyAccounts(deps: Deps, rows: AccountRow[], replace: boolean, actorId
   const { db } = deps;
   const cols = (db.prepare("PRAGMA table_info(users)").all() as unknown as Array<{ name: string }>).map(c => c.name);
   let added = 0, removed = 0, signedOut = false;
+  const val = (r: AccountRow, c: string) => (c === "totp_secret" && r[c] ? deps.box.seal(String(r[c])) : r[c]) as string | number | null;
   tx(db, () => {
     const have = db.prepare("SELECT id, username FROM users").all() as unknown as Array<{ id: string; username: string }>;
     if (replace) {
@@ -224,10 +231,10 @@ function applyAccounts(deps: Deps, rows: AccountRow[], replace: boolean, actorId
     const ids = new Set(have.map(u => u.id)), names = new Set(have.map(u => u.username.toLowerCase()));
     for (const r of rows) {
       const use = cols.filter(c => c in r);
-      const vals = use.map(c => r[c] as string | number | null);
+      const vals = use.map(c => val(r, c));
       if (replace && ids.has(r.id as string)) {
         const set = use.filter(c => c !== "id");
-        db.prepare(`UPDATE users SET ${set.map(c => `${c} = ?`).join(", ")} WHERE id = ?`).run(...set.map(c => r[c] as string | number | null), r.id as string);
+        db.prepare(`UPDATE users SET ${set.map(c => `${c} = ?`).join(", ")} WHERE id = ?`).run(...set.map(c => val(r, c)), r.id as string);
         db.prepare("DELETE FROM sessions WHERE user_id = ?").run(r.id as string); // sign-ins made before the restore must not outlive a changed password
         if (r.id === actorId) signedOut = true;
       } else if (!ids.has(r.id as string) && !names.has(String(r.username).toLowerCase())) {
@@ -278,7 +285,7 @@ export const validSnapshotName = (n: string) => SNAP.test(n);
 
 // ---- schedule maths (all in the dashboard's time zone)
 
-function zonedParts(ts: number, tz: string) {
+export function zonedParts(ts: number, tz: string) {
   const f = new Intl.DateTimeFormat("en-CA", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const p: Record<string, number> = {};
   for (const x of f.formatToParts(ts)) if (x.type !== "literal") p[x.type] = Number(x.value);

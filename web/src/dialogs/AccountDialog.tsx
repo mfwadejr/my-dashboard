@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../api";
 import type { AuthUser } from "../types";
 import { Field, Modal } from "./Modal";
+import { TwoFactorPanel } from "./TwoFactor";
 
 /** For every signed-in person: change your own password or sign out of all devices. */
 export function AccountDialog({ me, onSignedOut, onClose }: { me: AuthUser; onSignedOut: () => void; onClose: () => void }) {
@@ -22,6 +23,8 @@ export function AccountDialog({ me, onSignedOut, onClose }: { me: AuthUser; onSi
         {msg && <p className={msg.ok ? "ok-note" : "error"} role="status">{msg.text}</p>}
         <div className="acts"><button type="button" className="btn" onClick={async () => { await api.post("/api/auth/logout-all"); onSignedOut(); }}>Sign out everywhere</button><button className="btn pri" disabled={busy || !cur || next.length < 8}>Change password</button></div>
       </form>
+      <h3 className="subhead">Two-factor sign-in</h3>
+      <TwoFactorPanel me={me} onChanged={() => undefined} />
     </Modal>
   );
 }

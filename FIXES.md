@@ -2,17 +2,10 @@
 
 Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 
-## Next: finish the backend first (agreed; before more tiles or integrations). Items 1-6 shipped in update33; numbering below continues from 7.
+## Next: finish the backend first (agreed; before more tiles or integrations). Items 1-13 shipped (update33, update34); numbering below continues from 14.
 Log and history
-7. Log pruning rules: keep by severity (errors/warnings longer than information), size cap (oldest first), per-area retention, optional export of old lines to a file before pruning, and verbosity (how much is written).
-8. Graph history downsampling: detailed readings for about 2 days, hourly averages for 30 days, daily averages for a year (instead of keep-everything or delete).
 Security and access
-9. Two-factor sign-in (TOTP) for admins with recovery codes, plus an idle timeout.
-10. API tokens (new Settings tab): named, read-only or read-write, shown once, revocable, last-used shown, every use logged.
 Health and maintenance
-11. Database maintenance: periodic integrity check, vacuum, size report; warning on the Status page when the disk is nearly full.
-12. Fuller health check for the container healthcheck: database writable, disk space, relay reachable.
-13. Optional update check against GitHub shown in About; off by default (it makes an outside request).
 Icons (modelled on Site Gateway v0.16.x, reviewed from the code)
 14. Icon selector everywhere an icon is used (connections, tiles, tabs, cameras, Launcher, accounts, API tokens): search, upload, https address, "use letters instead", one-click clear.
 15. Three icon sources in one search, saved as source:slug references: Dashboard Icons (app logos), selfh.st Icons (more app logos), Lucide (plain symbols such as camera, router, wifi). Lucide symbols are recolored for the dark theme when stored. Light/dark variants hidden from broad search but still found by exact name.
@@ -41,6 +34,7 @@ Icons (modelled on Site Gateway v0.16.x, reviewed from the code)
 - Verify against real hardware: Protect, Prowlarr, Site Gateway, Unraid, ZimaOS.
 
 ## Done
+- update34 (push 2 of 3, backend): two-factor sign-in (authenticator app, QR code, 10 one-time recovery codes; an admin can reset someone's; `HOMEBASE_RESET_2FA=<username>` clears it from the container) and idle sign-out for admins; API tokens (Settings → API access: read-only or read-write, shown once, revocable, last use recorded, every use logged under the area "api", 600 requests a minute, never able to manage people, backups, sharing or tokens, plus a flat `/api/summary` for other tools); graph history kept in three tiers (full detail, hourly, daily averages) with a preview before pruning; log rules by severity, by area and by size, optional CSV of removed lines, quiet/normal/detailed recording; database upkeep (integrity check, search-index refresh, vacuum, table sizes) weekly, monthly or on demand; disk-space warnings on the Status page; a fuller health check (database writable, disk, relay); optional daily update check against GitHub (off by default).
 - update33 (push 1 of 3, backend): restore from the UI (verified first, safety copy, swap at restart); Verify on every copy and "Verify a file..." for .db and .json (database opens, integrity and foreign keys, layout version, counts, saved passwords open with the current key, admin exists, date and size; scheduled copies are verified and logged); schedule control (6 hours, daily, weekly, time of day, next copy shown); network copies over SFTP (built in, server identity pinned on first Test) and SMB (smbclient in the image; untested against a real NAS); safety copy before every database layout upgrade and refusal to start on a newer database; accounts as an opt-in in the JSON backup (passphrase required); "Add a copy from a file".
 - Platform pass (update32): Settings page with General (name, time zone, clock, week start, public address, appearance moved out of the header with dashboard default and per-device override, wall display, history limits), Data & backup (JSON export with optional passphrase, restore with preview, nightly SQLite copies, encryption key download, danger zone), Access (Admin/Viewer accounts, password change, signed-in devices), Sharing (camera links with expiry, PIN, switch off; wall-display links), Status & log (per-connection state and 24 h strip, searchable plain-English log with filters and CSV export) and About. Version, commit and build date baked into the image, shown in the footer, About and health check; open pages show a reload banner after an update. No anonymous viewing. Public port 3001 serves share links only. Wall display mode, tab cycling, wake lock and a PWA manifest.
 - Tiles can be placed anywhere by dragging in edit mode: snap-to-grid with a landing outline, other tiles make room, drag between groups, per-group Auto-pack, Esc cancels, edge auto-scroll; the Arrange presets are one-time buttons and moving a tile switches the group back to Free.

@@ -10,10 +10,14 @@ import { claimFirstAdmin, isSetUp } from "./auth.js";
 import { AutoBackup } from "./backup.js";
 import { Destinations } from "./destinations.js";
 import { backupOpsRoutes } from "./routes/backupops.js";
+import { tokenRoutes } from "./routes/tokens.js";
 import { rmSync } from "node:fs";
 import { installMainGate } from "./gate.js";
 import { buildPublicApp } from "./public.js";
 import { Shares } from "./shares.js";
+import { Tokens } from "./tokens.js";
+import { Maintenance, diskInfo } from "./maintenance.js";
+import { systemRoutes } from "./routes/system.js";
 import { logEvent } from "./db.js";
 import type { Deps } from "./deps.js";
 import { versionInfo } from "./version.js";
@@ -42,20 +46,28 @@ export async function buildApp(config: Config) {
   const box = new SecretBox(config.dataDir);
   const store = new Store(db, box);
   const hub = new Hub();
-  const poller = new Poller(db, store, hub);
+  const poller = new Poller(db, store, hub, config.dataDir);
   const live = new LiveSampler(store);
   const go2rtc = new Go2rtc(config.go2rtcUrl, store, db);
   const icons = new Icons(config.dataDir);
   const shares = new Shares(db, box);
-  const access = new Access(db, shares);
+  const tokens = new Tokens(db);
+  const access = new Access(db, shares, tokens);
   const version = versionInfo();
   const destinations = new Destinations(db, box);
-  const deps: Deps = { config, db, box, store, hub, poller, go2rtc, shares, access, destinations, restart: () => {}, backups: undefined as unknown as AutoBackup };
+  const deps: Deps = { config, db, box, store, hub, poller, go2rtc, shares, access, tokens, destinations, maintenance: undefined as unknown as Maintenance, restart: () => {}, backups: undefined as unknown as AutoBackup };
   deps.backups = new AutoBackup(() => deps, config.dataDir);
+  deps.maintenance = new Maintenance(() => deps);
   try { rmSync(deps.backups.tmp, { recursive: true, force: true }); } catch { /* leftovers from an interrupted upload */ }
   const requireAuth = access.requireAdmin;
 
   seedIfEmpty(db);
+  if (process.env.HOMEBASE_RESET_2FA) {
+    // Lock-out escape hatch: set this to a username, start Homebase once, then remove it.
+    const name = process.env.HOMEBASE_RESET_2FA.trim();
+    const r = db.prepare("UPDATE users SET totp_secret = '', totp_enabled = 0, totp_last = 0, recovery = '[]' WHERE username = ?").run(name);
+    logEvent(db, "warn", "security", Number(r.changes) ? `Two-factor sign-in was reset for "${name}" by the HOMEBASE_RESET_2FA setting` : `HOMEBASE_RESET_2FA named "${name}", but there is no such account`);
+  }
   if (process.env.ADMIN_PASSWORD && !isSetUp(db)) await claimFirstAdmin(db, process.env.ADMIN_USERNAME || "admin", process.env.ADMIN_PASSWORD);
 
   const app = Fastify({ logger: process.env.NODE_ENV === "test" ? false : { level: "info" }, trustProxy: config.trustProxy, bodyLimit: 1_000_000 });
@@ -65,7 +77,8 @@ export async function buildApp(config: Config) {
   // Every change request must carry a custom header. A web page on another site cannot add one,
   // which blocks cross-site request forgery on top of the SameSite=Strict session cookie.
   app.addHook("onRequest", async (request, reply) => {
-    if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method) && request.url.startsWith("/api/") && request.headers["x-homebase"] !== "1") {
+    const bearer = /^Bearer\s+hb_/i.test(String(request.headers.authorization ?? "")); // no cookie is involved, so there is nothing for another site to ride on
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method) && request.url.startsWith("/api/") && request.headers["x-homebase"] !== "1" && !bearer) {
       await reply.code(403).send({ error: "Missing request header" });
     }
   });
@@ -81,7 +94,17 @@ export async function buildApp(config: Config) {
     return reply.code(status).send({ error: status >= 500 ? "Something went wrong on the server" : error.message });
   });
 
-  app.get("/api/health", async () => ({ ok: true, version: version.version }));
+  /** For the container's healthcheck: can the database be written, is there disk space, is the camera relay reachable. */
+  app.get("/api/health", async (request, reply) => {
+    const strict = (request.query as { strict?: string } | undefined)?.strict === "1";
+    let database: "ok" | "fail" = "ok";
+    try { db.prepare("INSERT INTO meta (k, v) VALUES ('health_ping', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").run(String(Date.now())); } catch { database = "fail"; }
+    const disk = diskInfo(config.dataDir)?.level ?? "ok";
+    const rs = await go2rtc.status(1500);
+    const relay = !rs.enabled ? "off" : rs.reachable ? "ok" : "down";
+    const status = database === "fail" || disk === "critical" || (strict && relay === "down") ? "fail" : disk === "low" || relay === "down" ? "degraded" : "ok";
+    return reply.code(status === "fail" ? 503 : 200).send({ ok: status !== "fail", status, version: version.version, checks: { database, disk, relay } });
+  });
   authRoutes(app, deps);
   userRoutes(app, deps);
   settingsRoutes(app, deps);
@@ -89,6 +112,8 @@ export async function buildApp(config: Config) {
   shareAdminRoutes(app, deps);
   adminRoutes(app, deps);
   backupOpsRoutes(app, deps);
+  tokenRoutes(app, deps);
+  systemRoutes(app, deps);
   dashboardRoutes(app, deps);
   integrationRoutes(app, db, store, poller, hub, requireAuth, live, access, version.build);
   iconRoutes(app, icons, requireAuth);
@@ -104,10 +129,10 @@ export async function buildApp(config: Config) {
 
   const publicApp = config.publicPort && config.publicPort > 0 ? await buildPublicApp(deps) : null;
   if (config.startPollers) {
-    poller.start(); go2rtc.start(); deps.backups.start();
+    poller.start(); go2rtc.start(); deps.backups.start(); deps.maintenance.start();
     logEvent(db, "info", "system", `Homebase ${version.version} (${version.commit}) started`);
   }
-  app.addHook("onClose", async () => { if (publicApp) await publicApp.close(); poller.stop(); live.stop(); go2rtc.stop(); deps.backups.stop(); hub.close(); db.close(); });
+  app.addHook("onClose", async () => { if (publicApp) await publicApp.close(); poller.stop(); live.stop(); go2rtc.stop(); deps.backups.stop(); deps.maintenance.stop(); hub.close(); db.close(); });
   return { app, publicApp, db, store, poller, go2rtc, deps };
 }
 

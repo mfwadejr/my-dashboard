@@ -2,7 +2,7 @@ import { logEvent, type DB } from "./db.js";
 import type { Hub } from "./hub.js";
 import type { Store, IntegrationRow } from "./store.js";
 import { INTEGRATION_TYPES } from "./integrations/registry.js";
-import { getSettings } from "./settings.js";
+import { runRetention } from "./retention.js";
 
 export interface Snapshot {
   id: string;
@@ -29,7 +29,7 @@ export class Poller {
   private pruneTimer?: NodeJS.Timeout;
   private stopped = false;
 
-  constructor(private db: DB, private store: Store, private hub: Hub) {}
+  constructor(private db: DB, private store: Store, private hub: Hub, private dataDir = "") {}
 
   start(): void {
     for (const row of this.store.listIntegrations()) if (row.enabled) this.schedule(row.id, 0);
@@ -125,12 +125,10 @@ export class Poller {
     for (const [key, value] of Object.entries(metrics)) if (Number.isFinite(value)) insert.run(id, key, now, value);
   }
 
-  /** Applies the history settings now (also runs hourly). */
+  /** Applies the history and log rules now (also runs hourly). */
   prune(): { metrics: number; events: number } {
-    const cfg = getSettings(this.db);
-    const m = this.db.prepare("DELETE FROM metrics WHERE ts < ?").run(Date.now() - cfg.metricsDays * 86400_000);
-    const e = this.db.prepare("DELETE FROM events WHERE ts < ?").run(Date.now() - cfg.logDays * 86400_000);
-    return { metrics: Number(m.changes), events: Number(e.changes) };
+    const r = runRetention(this.db, this.dataDir || ".");
+    return { metrics: r.metrics, events: r.events };
   }
 }
 

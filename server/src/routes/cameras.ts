@@ -28,7 +28,7 @@ export function mainStreamCheck(d: Deps): StreamCheck {
   return (request, src) => {
     const p = d.access.principal(request);
     if (!p) return 401;
-    if (p.kind === "user" || p.share.kind === "kiosk") return null;
+    if (p.kind !== "share" || p.share.kind === "kiosk") return null;
     const allowed = new Set(p.share.cameras.flatMap(id => [`cam-${id}`, `cam-${id}-sub`]));
     return src === null || allowed.has(src) ? null : 403;
   };

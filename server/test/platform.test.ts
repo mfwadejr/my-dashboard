@@ -82,7 +82,7 @@ test("settings: validated, time zone checked, changes are logged; about shows th
   assert.equal((await call("PUT", "/api/settings", { metricsDays: 0 })).statusCode, 400);
   assert.equal((await call("PUT", "/api/settings", { publicBaseUrl: "javascript:alert(1)" })).statusCode, 400);
   assert.equal((await call("PUT", "/api/settings", { nonsense: 1 })).statusCode, 400);
-  const ok = await call("PUT", "/api/settings", { timezone: "America/Chicago", weekStart: "mon", metricsDays: 30, publicBaseUrl: "https://cams.example.com/", clock: "24" });
+  const ok = await call("PUT", "/api/settings", { timezone: "America/Chicago", weekStart: "mon", metricsDays: 90, publicBaseUrl: "https://cams.example.com/", clock: "24" });
   assert.equal(ok.statusCode, 200);
   assert.equal(ok.json().publicBaseUrl, "https://cams.example.com");
   assert.equal((await call("GET", "/api/settings")).json().timezone, "America/Chicago");
@@ -133,11 +133,11 @@ test("connections are logged and the status page shows state, speed and a histor
 
 test("history settings: prune, clear per connection", async () => {
   const id = ctx.store.listIntegrations()[0].id;
-  ctx.db.prepare("INSERT INTO metrics (instance_id, key, ts, value) VALUES (?, 'x', ?, 1)").run(id, Date.now() - 40 * 86400_000);
+  ctx.db.prepare("INSERT INTO metrics (instance_id, key, ts, value) VALUES (?, 'x', ?, 1)").run(id, Date.now() - 400 * 86400_000);
   const stats = (await call("GET", "/api/data/stats")).json();
   assert.ok(stats.dbBytes > 0 && stats.metricsRows >= 1 && stats.key.source === "file");
   const pruned = (await call("POST", "/api/data/prune")).json();
-  assert.ok(pruned.metrics >= 1, "older than the 30 days set earlier");
+  assert.ok(pruned.metrics >= 1, "older than the history limit");
   assert.ok((await call("POST", "/api/data/clear-metrics", { id })).json().removed >= 1);
   assert.equal((ctx.db.prepare("SELECT COUNT(*) AS n FROM metrics WHERE instance_id = ?").get(id) as any).n, 0);
 });

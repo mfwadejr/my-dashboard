@@ -139,3 +139,30 @@ export function useFastSamples(instanceId: string | undefined, enabled: boolean,
   }, [instanceId, enabled, keep]);
   return points;
 }
+
+/**
+ * Idle sign-out for admins. The server decides (it ends the session after the quiet spell); this reports real clicks and key presses
+ * so only walking away counts, keeps a wall display alive, and notices when the session has ended so the sign-in page appears.
+ */
+export function useIdleGuard(enabled: boolean, kiosk: boolean, minutes: number, onEnded: () => void) {
+  const ended = useRef(onEnded);
+  ended.current = onEnded;
+  useEffect(() => {
+    if (!enabled || minutes <= 0) return;
+    let touched = true, last = 0;
+    const mark = () => { touched = true; };
+    const evs = ["pointerdown", "keydown", "wheel", "touchstart"] as const;
+    for (const e of evs) window.addEventListener(e, mark, { passive: true });
+    const ping = async () => {
+      const now = Date.now();
+      if ((touched || kiosk) && now - last >= 60_000) { touched = false; last = now; try { await api.post("/api/auth/activity"); } catch { /* the check below notices a ended session */ } }
+      try {
+        const s = await api.get<{ authed: boolean }>("/api/auth/status");
+        if (!s.authed) { try { sessionStorage.setItem("hb_idle", "1"); } catch { /* ignore */ } ended.current(); }
+      } catch { /* offline: try again next time */ }
+    };
+    void ping();
+    const t = window.setInterval(() => void ping(), 30_000);
+    return () => { window.clearInterval(t); for (const e of evs) window.removeEventListener(e, mark); };
+  }, [enabled, kiosk, minutes]);
+}

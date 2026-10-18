@@ -74,6 +74,22 @@ const MIGRATIONS: string[] = [
     INSERT INTO events_fts(events_fts, rowid, message, source) VALUES ('delete', old.id, old.message, old.source);
   END;
   INSERT INTO events_fts(events_fts) VALUES ('rebuild');
+  `,
+  /* 5: two-factor sign-in, API tokens, idle timeout, graph history resolution (0 = every reading, 1 = hourly average, 2 = daily average) */
+  `
+  ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT '';
+  ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE users ADD COLUMN totp_last INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE users ADD COLUMN recovery TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE sessions ADD COLUMN last_active INTEGER NOT NULL DEFAULT 0;
+  UPDATE sessions SET last_active = last_seen;
+  ALTER TABLE metrics ADD COLUMN res INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX metrics_res_ts ON metrics(res, ts);
+  CREATE TABLE api_tokens (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, prefix TEXT NOT NULL, scope TEXT NOT NULL,
+    created_at INTEGER NOT NULL, created_by TEXT NOT NULL DEFAULT '', last_used INTEGER, last_ip TEXT NOT NULL DEFAULT '',
+    uses INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0
+  );
   `
 ];
 
@@ -166,8 +182,29 @@ export function tx<T>(db: DB, fn: () => T): T {
 }
 
 export type LogLevel = "info" | "warn" | "error";
-/** Log sources: security, settings, connection, camera, share, backup, system. Messages are plain sentences meant to be read and searched by people. */
-export function logEvent(db: DB, level: LogLevel, source: string, message: string): void {
-  try { db.prepare("INSERT INTO events (ts, level, source, message) VALUES (?, ?, ?, ?)").run(Date.now(), level, source, message.slice(0, 500)); }
+
+// How much gets written is a setting ("quiet", "normal", "detailed"). It is read often, so keep it for a few seconds.
+let verbosityCache: { db: DB; at: number; value: string } | null = null;
+export function verbosity(db: DB): string {
+  const now = Date.now();
+  if (verbosityCache && verbosityCache.db === db && now - verbosityCache.at < 5000) return verbosityCache.value;
+  let value = "normal";
+  try { value = String(JSON.parse(getMeta(db, "settings") ?? "{}").logVerbosity ?? "normal"); } catch { /* use the default */ }
+  verbosityCache = { db, at: now, value };
+  return value;
+}
+export const forgetVerbosity = () => { verbosityCache = null; };
+
+/**
+ * Log sources: security, settings, connection, camera, share, backup, system, api. Messages are plain sentences meant to be read and searched by people.
+ * `quiet` keeps only warnings, errors and security notes. `detail` lines are written only in "detailed" mode.
+ */
+export function logEvent(db: DB, level: LogLevel, source: string, message: string, opts: { detail?: boolean } = {}): void {
+  try {
+    const v = verbosity(db);
+    if (opts.detail && v !== "detailed") return;
+    if (v === "quiet" && level === "info" && source !== "security") return;
+    db.prepare("INSERT INTO events (ts, level, source, message) VALUES (?, ?, ?, ?)").run(Date.now(), level, source, message.slice(0, 500));
+  }
   catch { /* logging must never break the request that triggered it */ }
 }
