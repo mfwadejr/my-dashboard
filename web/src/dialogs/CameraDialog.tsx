@@ -40,6 +40,11 @@ function ProtectImport({ protect, onImported }: { protect: IntegrationInfo[]; on
       </div>
       {found && found.length > 0 && (
         <>
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="btn sm" disabled={picked.length === found.length} onClick={() => setPicked(found.map(c => c.id))}>Select all</button>
+            <button type="button" className="btn sm" disabled={picked.length === 0} onClick={() => setPicked([])}>Select none</button>
+            <span className="sub">{picked.length} of {found.length} selected</span>
+          </div>
           <div className="list sec-pick">{found.map(c => (
             <div key={c.id} className="li"><label className="chk"><input type="checkbox" checked={picked.includes(c.id)} onChange={e => setPicked(e.target.checked ? [...picked, c.id] : picked.filter(x => x !== c.id))} /> {c.name}</label><span className="sub">{c.state.toLowerCase()}</span></div>
           ))}</div>

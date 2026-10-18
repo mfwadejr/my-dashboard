@@ -41,6 +41,10 @@ export function TileSettings({ tile, integrations, cameras = [], onAddCameras, o
           return (
             <>
               <div className="field"><span>Cameras</span>
+                {cameras.length > 1 && <span className="row" style={{ gap: 8 }}>
+                  <button type="button" className="btn sm" disabled={live.length === cameras.length} onClick={() => onChange({ cameraIds: [...live, ...cameras.map(c => c.id).filter(id => !live.includes(id))] })}>Select all</button>
+                  <button type="button" className="btn sm" disabled={live.length === 0} onClick={() => onChange({ cameraIds: [] })}>Select none</button>
+                </span>}
                 {cameras.length ? (
                   <div className="list sec-pick">{cameras.map(c => { const i = live.indexOf(c.id); return (
                     <div key={c.id} className="li"><label className="chk"><input type="checkbox" checked={i >= 0} onChange={e => toggle(c.id, e.target.checked)} /> {c.name}</label>

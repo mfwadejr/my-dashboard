@@ -21,6 +21,7 @@ Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 - Verify against real hardware: Protect, Prowlarr, Site Gateway, Unraid, ZimaOS.
 
 ## Done
+- update40: Select all / Select none when importing cameras from UniFi Protect and when choosing the cameras for a camera wall.
 - update39: empty camera and camera-wall tiles (no camera chosen, or the camera was removed) have proper padding instead of text touching the edge.
 - update38: camera tiles and camera walls get a Quality choice (light sub-stream, or full-resolution main stream); the picture opened full size still always uses the main stream.
 - update37: "Copy link" (share links, API tokens, recovery codes) now works when Homebase is opened over plain http on a home network, where browsers disable the clipboard API; ZimaOS compose file gained the app-store details and both ports.
