@@ -6,12 +6,13 @@ import { Access } from "./Access";
 import { Data } from "./Data";
 import { General, type DevicePrefs } from "./General";
 import { IconsSettings } from "./Icons";
+import { Monitors } from "./Monitors";
 import { Sharing } from "./Sharing";
 import { StatusLogs } from "./StatusLogs";
 
 export const SECTIONS = [
   { id: "general", label: "General" }, { id: "data", label: "Data & backup" }, { id: "access", label: "Access" },
-  { id: "sharing", label: "Sharing" }, { id: "icons", label: "Icons" }, { id: "api", label: "API access" }, { id: "status", label: "Status & log" }, { id: "about", label: "About" }
+  { id: "monitors", label: "Monitors" }, { id: "sharing", label: "Sharing" }, { id: "icons", label: "Icons" }, { id: "api", label: "API access" }, { id: "status", label: "Status & log" }, { id: "about", label: "About" }
 ] as const;
 export type SectionId = typeof SECTIONS[number]["id"];
 
@@ -29,6 +30,7 @@ export function SettingsPage({ section, onSection, me, device, integrations, cam
         {section === "general" && <General device={device} integrations={integrations} />}
         {section === "data" && <Data onRestored={onRestored} integrations={integrations} />}
         {section === "access" && <Access me={me} onSignedOut={onSignedOut} />}
+        {section === "monitors" && <Monitors me={me} about={about} />}
         {section === "sharing" && <Sharing cameras={cameras} about={about} />}
         {section === "icons" && <IconsSettings />}
         {section === "api" && <ApiAccess />}

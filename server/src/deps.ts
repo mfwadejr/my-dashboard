@@ -8,6 +8,7 @@ import type { Go2rtc } from "./go2rtc.js";
 import type { Icons } from "./icons.js";
 import type { Hub } from "./hub.js";
 import type { Maintenance } from "./maintenance.js";
+import type { Monitors, StatusPages } from "./monitors.js";
 import type { Poller } from "./poller.js";
 import type { Shares } from "./shares.js";
 import type { Store } from "./store.js";
@@ -16,7 +17,7 @@ import type { Tokens } from "./tokens.js";
 /** Everything the route files need, passed as one object. */
 export interface Deps {
   config: Config; db: DB; box: SecretBox; store: Store; hub: Hub; poller: Poller; go2rtc: Go2rtc;
-  shares: Shares; access: Access; backups: AutoBackup; destinations: Destinations; tokens: Tokens; maintenance: Maintenance; icons: Icons;
+  shares: Shares; access: Access; backups: AutoBackup; destinations: Destinations; tokens: Tokens; maintenance: Maintenance; icons: Icons; monitors: Monitors; statusPages: StatusPages;
   /** Ends the process so the container restarts (used after a restore). Replaced in index.ts; does nothing in tests. */
   restart: () => void;
 }

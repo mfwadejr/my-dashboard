@@ -26,3 +26,20 @@ export interface AboutInfo { version: string; commit: string; built: string | nu
 
 export interface VerifyCheck { id: string; label: string; status: "pass" | "warn" | "fail"; detail: string }
 export interface VerifyReport { kind: "database" | "json" | "complete"; ok: boolean; restorable: boolean; checks: VerifyCheck[]; counts: Record<string, number>; size: number; createdAt: number | null; layout: number | null; summary: string }
+
+export type MonitorState = "up" | "down" | "pending" | "paused" | "unknown";
+export type MonitorKind = "http" | "keyword" | "tcp" | "dns";
+export interface MonitorConfigInfo {
+  id: string; name: string; kind: MonitorKind; target: string; port: number; keyword: string; invert: boolean; expect: string; method: "GET" | "HEAD"; dnsType: string; dnsServer: string;
+  intervalSeconds: number; timeoutSeconds: number; retries: number; insecureTls: boolean; certWarnDays: number; enabled: boolean; position: number;
+}
+export interface MonitorInfo {
+  id: string; name: string; kind: MonitorKind; enabled: boolean; state: MonitorState; since: number | null; lastAt: number | null; lastMs: number | null; message: string;
+  uptime24h: number | null; uptime7d: number | null; uptime30d: number | null; avgMs24h: number | null; certExpires: number | null; strip: Array<0 | 1 | 2>; config?: MonitorConfigInfo;
+}
+export interface DayBar { day: number; up: number; down: number }
+export interface StatusPageInfo { id: string; title: string; message: string; monitors: string[]; enabled: boolean; views: number; lastUsed: number | null; createdAt: number; token: string; path: string }
+export interface PublicStatus {
+  title: string; message: string; overall: "up" | "degraded" | "down" | "unknown"; updatedAt: number;
+  monitors: Array<{ name: string; state: MonitorState; uptime24h: number | null; uptime30d: number | null; ms: number | null; days: DayBar[] }>;
+}

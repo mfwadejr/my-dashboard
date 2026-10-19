@@ -113,6 +113,26 @@ const MIGRATIONS: string[] = [
   /* 8: per-account look (theme, accent, last tab) */ `
   ALTER TABLE users ADD COLUMN prefs TEXT NOT NULL DEFAULT '{}';
   `,
+  /* 9: uptime monitoring and public status pages */ `
+  CREATE TABLE monitors (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, target TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 0,
+    keyword TEXT NOT NULL DEFAULT '', invert INTEGER NOT NULL DEFAULT 0, expect TEXT NOT NULL DEFAULT '200-299', method TEXT NOT NULL DEFAULT 'GET',
+    dns_type TEXT NOT NULL DEFAULT 'A', dns_server TEXT NOT NULL DEFAULT '', interval_s INTEGER NOT NULL DEFAULT 60, timeout_s INTEGER NOT NULL DEFAULT 10,
+    retries INTEGER NOT NULL DEFAULT 1, insecure_tls INTEGER NOT NULL DEFAULT 0, cert_warn_days INTEGER NOT NULL DEFAULT 14, enabled INTEGER NOT NULL DEFAULT 1,
+    position INTEGER NOT NULL DEFAULT 0, cert_expires INTEGER, created_at INTEGER NOT NULL
+  );
+  CREATE TABLE monitor_checks (monitor_id TEXT NOT NULL, ts INTEGER NOT NULL, s INTEGER NOT NULL, ms INTEGER, msg TEXT NOT NULL DEFAULT '');
+  CREATE INDEX monitor_checks_ix ON monitor_checks(monitor_id, ts);
+  CREATE TABLE monitor_daily (
+    monitor_id TEXT NOT NULL, day INTEGER NOT NULL, up INTEGER NOT NULL DEFAULT 0, down INTEGER NOT NULL DEFAULT 0,
+    ms_sum INTEGER NOT NULL DEFAULT 0, ms_n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (monitor_id, day)
+  );
+  CREATE TABLE status_pages (
+    id TEXT PRIMARY KEY, title TEXT NOT NULL, message TEXT NOT NULL DEFAULT '', monitors TEXT NOT NULL DEFAULT '[]',
+    token_hash TEXT NOT NULL UNIQUE, token_sealed TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL, last_used INTEGER, views INTEGER NOT NULL DEFAULT 0
+  );
+  `,
 ];
 
 /** Exposed for tests that need to build an older database. */

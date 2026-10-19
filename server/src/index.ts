@@ -34,6 +34,8 @@ import { Hub } from "./hub.js";
 import { Icons } from "./icons.js";
 import { migrateLegacyIcons } from "./iconmigrate.js";
 import { Poller } from "./poller.js";
+import { Monitors, StatusPages } from "./monitors.js";
+import { monitorRoutes, statusOpenRoutes } from "./routes/monitors.js";
 import { LiveSampler } from "./live.js";
 import { Store } from "./store.js";
 import { authRoutes } from "./routes/auth.js";
@@ -56,7 +58,8 @@ export async function buildApp(config: Config) {
   const access = new Access(db, shares, tokens);
   const version = versionInfo();
   const destinations = new Destinations(db, box);
-  const deps: Deps = { config, db, box, store, hub, poller, go2rtc, shares, access, tokens, destinations, icons, maintenance: undefined as unknown as Maintenance, restart: () => {}, backups: undefined as unknown as AutoBackup };
+  const monitors = new Monitors(db), statusPages = new StatusPages(db, box, monitors);
+  const deps: Deps = { monitors, statusPages, config, db, box, store, hub, poller, go2rtc, shares, access, tokens, destinations, icons, maintenance: undefined as unknown as Maintenance, restart: () => {}, backups: undefined as unknown as AutoBackup };
   deps.backups = new AutoBackup(() => deps, config.dataDir);
   deps.maintenance = new Maintenance(() => deps);
   try { rmSync(deps.backups.tmp, { recursive: true, force: true }); } catch { /* leftovers from an interrupted upload */ }
@@ -119,6 +122,8 @@ export async function buildApp(config: Config) {
   dashboardRoutes(app, deps);
   integrationRoutes(app, db, store, poller, hub, requireAuth, live, access, version.build);
   iconRoutes(app, deps);
+  monitorRoutes(app, deps);
+  statusOpenRoutes(app, deps);
   await cameraRoutes(app, deps);
 
   if (existsSync(join(config.webDir, "index.html"))) {
@@ -131,10 +136,10 @@ export async function buildApp(config: Config) {
 
   const publicApp = config.publicPort && config.publicPort > 0 ? await buildPublicApp(deps) : null;
   if (config.startPollers) {
-    poller.start(); go2rtc.start(); deps.backups.start(); deps.maintenance.start(); icons.start();
+    poller.start(); monitors.start(); go2rtc.start(); deps.backups.start(); deps.maintenance.start(); icons.start();
     logEvent(db, "info", "system", `Homebase ${version.version} (${version.commit}) started`);
   }
-  app.addHook("onClose", async () => { if (publicApp) await publicApp.close(); poller.stop(); live.stop(); go2rtc.stop(); deps.backups.stop(); deps.maintenance.stop(); icons.stop(); hub.close(); db.close(); });
+  app.addHook("onClose", async () => { if (publicApp) await publicApp.close(); poller.stop(); monitors.stop(); live.stop(); go2rtc.stop(); deps.backups.stop(); deps.maintenance.stop(); icons.stop(); hub.close(); db.close(); });
   return { app, publicApp, db, store, poller, go2rtc, deps };
 }
 

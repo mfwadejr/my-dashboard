@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { throttleHit } from "./auth.js";
 import { publicStreamCheck, registerGo2rtcProxy } from "./routes/cameras.js";
 import { shareOpenRoutes } from "./routes/shares.js";
+import { statusOpenRoutes } from "./routes/monitors.js";
 import type { Deps } from "./deps.js";
 
 /**
@@ -39,12 +40,13 @@ export async function buildPublicApp(d: Deps) {
 
   app.get("/api/health", async () => ({ ok: true }));
   shareOpenRoutes(app, d, true);
+  statusOpenRoutes(app, d);
   if (d.config.go2rtcUrl) await registerGo2rtcProxy(app, d.config.go2rtcUrl, publicStreamCheck(d));
 
   if (existsSync(join(d.config.webDir, "index.html"))) {
     await app.register(fastifyStatic, { root: d.config.webDir, wildcard: false, cacheControl: false });
     app.setNotFoundHandler(async (request, reply) => {
-      if (request.method === "GET" && /^\/s\/[A-Za-z0-9_-]{20,80}\/?$/.test(request.url.split("?")[0])) return reply.header("Cache-Control", "no-store").sendFile("index.html");
+      if (request.method === "GET" && /^\/(?:s|status)\/[A-Za-z0-9_-]{20,80}\/?$/.test(request.url.split("?")[0])) return reply.header("Cache-Control", "no-store").sendFile("index.html");
       return reply.code(404).send({ error: "Not found" });
     });
   } else {

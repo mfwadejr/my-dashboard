@@ -11,6 +11,7 @@ import { DEFAULTS, getSettings, updateSettings } from "./settings.js";
 import { checkImage, cleanIcon, cleanIconRef } from "./icons.js";
 import { referencedIcons } from "./iconuse.js";
 import { versionInfo } from "./version.js";
+import { cleanMonitor, exportMonitors, type MonitorConfig } from "./monitors.js";
 import { finish, verifyDatabaseFile, type Check, type VerifyReport } from "./verify.js";
 import type { Deps } from "./deps.js";
 
@@ -27,6 +28,9 @@ export interface BackupFile {
   accountsIncluded?: boolean;
   /** The saved icon files the rest of the file refers to, by name ("used/..."), as base64. */
   icons?: Record<string, string>;
+  /** Uptime monitors and public status pages (no history, and status page links are made new on import). */
+  monitors?: MonitorConfig[];
+  statusPages?: Array<{ id: string; title: string; message: string; monitors: string[]; enabled: boolean }>;
 }
 type AccountRow = Record<string, string | number | null>;
 interface SecretsPlain { integrations: Record<string, string>; cameras: Record<string, { main: string; sub: string }>; accounts?: AccountRow[] }
@@ -78,8 +82,9 @@ export function exportBackup(deps: Deps, passphrase: string, opts: { accounts?: 
     if (iconBytes + buf.length > 6_000_000) break;
     iconBytes += buf.length; icons[name] = buf.toString("base64");
   }
+  const { monitors, statusPages } = exportMonitors(db);
   return {
-    icons,
+    icons, monitors, statusPages,
     accountsIncluded: Boolean(opts.accounts),
     format: BACKUP_FORMAT, formatVersion: FORMAT_VERSION, app: { version: v.version, commit: v.commit }, createdAt: new Date().toISOString(),
     settings: { ...getSettings(db) }, dashboard: { tabs: readDashboard(db).tabs }, integrations, cameras,
@@ -104,13 +109,22 @@ export function parseBackup(raw: unknown): BackupFile {
     if (!CAM_ID.test(String(c?.id))) throw new ValidationError("A camera in the file has an invalid id");
     return { id: String(c.id), name: String(c.name ?? "").trim().slice(0, 60) || "Camera", main: String(c.main ?? "").slice(0, 600), sub: String(c.sub ?? "").slice(0, 600), icon: cleanIcon(c.icon), iconRef: cleanIcon(c.icon) ? cleanIconRef(c.iconRef) : "" };
   });
+  const monitors = (Array.isArray(f.monitors) ? f.monitors : []).slice(0, 100).map((m: any, i: number): MonitorConfig => {
+    if (!ID.test(String(m?.id))) throw new ValidationError("A monitor in the file has an invalid id");
+    return { ...cleanMonitor(m), id: String(m.id), position: i };
+  });
+  const monIds = new Set(monitors.map(m => m.id));
+  const statusPages = (Array.isArray(f.statusPages) ? f.statusPages : []).slice(0, 50).map((p: any) => ({
+    id: String(p?.id ?? "").slice(0, 64), title: String(p?.title ?? "Status").trim().slice(0, 80) || "Status", message: String(p?.message ?? "").slice(0, 400),
+    monitors: (Array.isArray(p?.monitors) ? p.monitors.map(String) : []).filter((x: string) => monIds.has(x)), enabled: p?.enabled !== false
+  })).filter(p => p.monitors.length);
   const s = f.secrets as SecretsBlob | null | undefined;
   if (s && !(typeof s.salt === "string" && typeof s.iv === "string" && typeof s.tag === "string" && typeof s.data === "string")) throw new ValidationError("The protected section of the file is damaged");
   return {
     format: BACKUP_FORMAT, formatVersion: f.formatVersion, app: { version: String(f.app?.version ?? "?"), commit: String(f.app?.commit ?? "?") }, createdAt: String(f.createdAt ?? ""),
     settings: f.settings && typeof f.settings === "object" ? f.settings : {}, dashboard: dash, integrations, cameras, secrets: s ?? null,
     accountsIncluded: Boolean(f.accountsIncluded && s),
-    icons: parseIcons(f.icons)
+    icons: parseIcons(f.icons), monitors, statusPages
   };
 }
 
@@ -144,7 +158,7 @@ export function previewBackup(deps: Deps, file: BackupFile, opts: ImportOptions)
   return {
     accounts,
     createdAt: file.createdAt, app: file.app, encrypted: Boolean(file.secrets), passphraseOk,
-    tabs: file.dashboard.tabs.length, groups, tiles, integrations: file.integrations.length, cameras: file.cameras.length, icons: Object.keys(file.icons ?? {}).length,
+    tabs: file.dashboard.tabs.length, groups, tiles, integrations: file.integrations.length, cameras: file.cameras.length, monitors: (file.monitors ?? []).length, icons: Object.keys(file.icons ?? {}).length,
     adds: {
       tabs: replace ? file.dashboard.tabs.length : file.dashboard.tabs.filter(t => !haveTab.has(t.id)).length,
       integrations: replace ? file.integrations.length : file.integrations.filter(i => !haveInt.has(i.id)).length,
@@ -203,6 +217,23 @@ export async function applyBackup(deps: Deps, file: BackupFile, opts: ImportOpti
     }
   });
 
+  // Uptime monitors and status pages. Their history is not part of a backup file, and status page links are new.
+  let monitorsAdded = 0;
+  if ((file.monitors ?? []).length || replace) {
+    const haveMon = new Set(deps.monitors.list().map(m => m.id));
+    tx(db, () => {
+      if (replace) { deps.monitors.clearAll(); db.exec("DELETE FROM status_pages;"); haveMon.clear(); }
+      for (const m of file.monitors ?? []) { if (haveMon.has(m.id)) continue; deps.monitors.insert(m); monitorsAdded++; }
+    });
+    const have = new Set(deps.monitors.list().map(m => m.id));
+    for (const p of file.statusPages ?? []) {
+      const ids = p.monitors.filter(x => have.has(x));
+      if (!ids.length) continue;
+      try { deps.statusPages.create({ title: p.title, message: p.message, monitors: ids, enabled: p.enabled }); } catch { /* a page that cannot be made is left out */ }
+    }
+    for (const m of deps.monitors.list()) deps.monitors.update(m.id, {}); // restarts each one's schedule
+  }
+
   const current = readDashboard(db);
   let tabs: TabDoc[];
   if (replace) { tabs = file.dashboard.tabs; added.tabs = tabs.length; }
@@ -229,7 +260,7 @@ export async function applyBackup(deps: Deps, file: BackupFile, opts: ImportOpti
   await go2rtc.reconcile().catch(() => {});
   logEvent(db, "info", "backup", `${actor} imported a backup (${opts.mode}): ${added.tabs} tab(s), ${added.integrations} connection(s), ${added.cameras} camera(s) added${needsSecrets.length ? `; ${needsSecrets.length} still need a password or key` : ""}`);
   if (accountsResult) logEvent(db, "warn", "security", `${actor} restored accounts from a backup (${opts.mode}): ${accountsResult.added} added, ${accountsResult.removed} removed`);
-  return { mode: opts.mode, added, skipped, needsSecrets, accounts: accountsResult, icons: iconsWritten };
+  return { mode: opts.mode, added: { ...added, monitors: monitorsAdded }, skipped, needsSecrets, accounts: accountsResult, icons: iconsWritten };
 }
 
 const ROLE = new Set(["admin", "viewer"]);

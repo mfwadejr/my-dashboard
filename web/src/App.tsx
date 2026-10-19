@@ -4,6 +4,7 @@ import { useAuth, useCameras, useDashboard, useIdleGuard, useIntegrations, useLi
 import { SettingsProvider, useSettings } from "./settings";
 import { SignIn } from "./pages/SignIn";
 import { ShareView } from "./pages/ShareView";
+import { StatusView } from "./pages/StatusView";
 import { SettingsPage, SECTIONS, type SectionId } from "./settings/SettingsPage";
 import { AccountDialog } from "./dialogs/AccountDialog";
 import type { AboutInfo } from "./types";
@@ -29,7 +30,8 @@ const cloneTab = (tab: Tab, name: string): Tab => ({ ...tab, id: uid(), name, gr
 /** A link someone sent (/s/<token>) shows only the shared cameras. Anything else needs a signed-in account. */
 export function App() {
   const shareToken = /^\/s\/([A-Za-z0-9_-]{20,80})\/?$/.exec(window.location.pathname)?.[1];
-  return shareToken ? <ShareView token={shareToken} /> : <Gate />;
+  const statusToken = /^\/status\/([A-Za-z0-9_-]{20,80})\/?$/.exec(window.location.pathname)?.[1];
+  return statusToken ? <StatusView token={statusToken} /> : shareToken ? <ShareView token={shareToken} /> : <Gate />;
 }
 
 function Gate() {

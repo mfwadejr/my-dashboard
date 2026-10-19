@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "./api";
-import type { AuthUser, CameraInfo, Dashboard, IntegrationInfo, Snapshot, Tab } from "./types";
+import type { AuthUser, CameraInfo, Dashboard, IntegrationInfo, MonitorInfo, Snapshot, Tab } from "./types";
 
 export interface UserPrefs { theme?: string; accent?: string; tab?: string }
 export interface AuthState { loaded: boolean; setup: boolean; authed: boolean; user: AuthUser | null; kiosk: boolean; prefs: UserPrefs }
@@ -166,4 +166,20 @@ export function useIdleGuard(enabled: boolean, kiosk: boolean, minutes: number, 
     const t = window.setInterval(() => void ping(), 30_000);
     return () => { window.clearInterval(t); for (const e of evs) window.removeEventListener(e, mark); };
   }, [enabled, kiosk, minutes]);
+}
+
+/** The monitors and where they stand now, refreshed every 15 seconds while the page is visible. */
+export function useMonitors() {
+  const [items, setItems] = useState<MonitorInfo[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const load = useCallback(async () => {
+    try { setItems((await api.get<{ items: MonitorInfo[] }>("/api/monitors")).items); } catch { /* keep what is shown */ }
+    setLoaded(true);
+  }, []);
+  useEffect(() => {
+    void load();
+    const t = window.setInterval(() => { if (!document.hidden) void load(); }, 15_000);
+    return () => window.clearInterval(t);
+  }, [load]);
+  return { items, loaded, reload: load };
 }

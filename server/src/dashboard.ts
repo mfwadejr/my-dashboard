@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { getMeta, setMeta, tx, type DB } from "./db.js";
 import { cleanIcon, cleanIconRef } from "./icons.js";
 
-export const TILE_TYPES = ["clock", "notes", "launcher", "sonarr", "radarr", "sabnzbd", "camera", "camerawall", "prowlarr", "sitegateway", "unifi-network", "unifi-protect", "unifi-pdu","unifi-unas","mediacalendar", "unraid", "zimaos"] as const;
+export const TILE_TYPES = ["clock", "notes", "launcher", "sonarr", "radarr", "sabnzbd", "camera", "camerawall", "prowlarr", "sitegateway", "unifi-network", "unifi-protect", "unifi-pdu","unifi-unas","mediacalendar", "unraid", "zimaos", "monitors"] as const;
 export const GROUP_LAYOUTS = ["free", "grid2", "grid3", "grid4", "spot", "row"] as const;
 
 export interface TileDoc { id: string; type: string; w: number; h: number; x?: number; y?: number; config: Record<string, unknown> }

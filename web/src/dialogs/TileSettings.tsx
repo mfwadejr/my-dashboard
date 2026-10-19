@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { uid } from "../api";
 import type { CameraInfo, IntegrationInfo, Tile } from "../types";
+import { useMonitors } from "../hooks";
 import { REFRESH_CHOICES, refreshOf } from "../widgets/Camera";
 import type { LauncherItem } from "../widgets/Launcher";
 import { WIDGET_BY_TYPE } from "../widgets";
@@ -32,6 +33,7 @@ export function TileSettings({ tile, integrations, cameras = [], onAddCameras, o
             ) : <div className="row"><span className="sub">No {def.label} connection yet.</span><button className="btn sm" onClick={onOpenConnections}>Add one</button></div>}
           </Field>
         )}
+        {tile.type === "monitors" && <MonitorPick chosen={(tile.config.monitorIds ?? []) as string[]} onChange={ids => onChange({ monitorIds: ids })} />}
         {tile.type === "camerawall" && (() => {
           const chosen = (tile.config.cameraIds ?? []) as string[];
           const mode = String(tile.config.mode ?? "snapshot");
@@ -131,5 +133,25 @@ export function TileSettings({ tile, integrations, cameras = [], onAddCameras, o
         <div className="acts"><span /><button type="button" className="btn pri" onClick={onClose}>Done</button></div>
       </div>
     </Modal>
+  );
+}
+
+function MonitorPick({ chosen, onChange }: { chosen: string[]; onChange: (ids: string[]) => void }) {
+  const { items } = useMonitors();
+  const live = chosen.filter(id => items.some(m => m.id === id));
+  return (
+    <div className="field"><span>Monitors to show</span>
+      {items.length ? (
+        <>
+          <span className="row g8">
+            <button type="button" className="btn sm" disabled={live.length === items.length} onClick={() => onChange(items.map(m => m.id))}>Select all</button>
+            <button type="button" className="btn sm" disabled={live.length === 0} onClick={() => onChange([])}>Select none</button>
+          </span>
+          <div className="list sec-pick">{items.map(m => (
+            <div key={m.id} className="li"><label className="chk"><input type="checkbox" checked={live.includes(m.id)} onChange={e => onChange(e.target.checked ? [...live, m.id] : live.filter(x => x !== m.id))} /> {m.name}</label></div>
+          ))}</div>
+        </>
+      ) : <span className="sub">No monitors yet. Add them in Settings → Monitors.</span>}
+      <small>Leave none ticked to show every monitor.</small></div>
   );
 }

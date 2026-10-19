@@ -13,7 +13,7 @@ export function installMainGate(app: FastifyInstance, d: Deps): void {
   app.addHook("onRequest", async (request, reply) => {
     const path = request.url.split("?")[0];
     if (!path.startsWith("/api/") && !path.startsWith("/go2rtc/")) return;
-    if (OPEN.has(path)) return;
+    if (OPEN.has(path) || path.startsWith("/api/status/")) return;
     const p = d.access.principal(request);
     if (!p) return reply.code(401).send({ error: "Sign in required" });
     if (p.kind === "token") {
