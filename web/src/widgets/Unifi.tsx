@@ -22,8 +22,8 @@ const SECTIONS: Record<string, (d: any) => ReactNode> = {
   gateway: d => d.gateway && (
     <>
       <div className="row sp"><span className="sub">{d.gateway.name}</span><span className="sub">{[d.gateway.tempC !== null && d.gateway.tempC !== undefined && `${Math.round(d.gateway.tempC)}°C`, `up ${uptime(d.gateway.uptimeSec)}`].filter(Boolean).join(" · ")}</span></div>
-      <div className="row sp"><span className="sub">CPU {pct(d.gateway.cpuPct)}</span><div style={{ flex: 1 }}><Bar value={(d.gateway.cpuPct ?? 0) / 100} tone={d.gateway.cpuPct > 85 ? "bad" : undefined} /></div></div>
-      <div className="row sp"><span className="sub">RAM {pct(d.gateway.memPct)}</span><div style={{ flex: 1 }}><Bar value={(d.gateway.memPct ?? 0) / 100} tone={d.gateway.memPct > 90 ? "warn" : undefined} /></div></div>
+      <div className="row sp"><span className="sub">CPU {pct(d.gateway.cpuPct)}</span><div className="f1"><Bar value={(d.gateway.cpuPct ?? 0) / 100} tone={d.gateway.cpuPct > 85 ? "bad" : undefined} /></div></div>
+      <div className="row sp"><span className="sub">RAM {pct(d.gateway.memPct)}</span><div className="f1"><Bar value={(d.gateway.memPct ?? 0) / 100} tone={d.gateway.memPct > 90 ? "warn" : undefined} /></div></div>
       <div className="row sp"><span className="sub">↓ {rate(d.gateway.rxBps)}</span><span className="sub">↑ {rate(d.gateway.txBps)}</span></div>
     </>
   ),
@@ -90,7 +90,7 @@ export function UnifiUnas(props: WidgetProps) {
         <>
           <div className="row sp"><span className="sub">{d.name ?? "UNAS"}</span>{st.status && <Pill tone={ok ? "ok" : "bad"}>{st.status.toLowerCase()}</Pill>}</div>
           <div className="gauges"><Gauge pct={used} label="Used" warn={80} bad={92} detail={`${bytes(st.usedB)} of ${bytes(st.totalB)}`} /></div>
-          {st.availB != null && <div className="sub" style={{ textAlign: "center" }}>{bytes(st.availB)} free</div>}
+          {st.availB != null && <div className="sub tc">{bytes(st.availB)} free</div>}
         </>
       );
     }}</Shell>

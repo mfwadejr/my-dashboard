@@ -27,7 +27,7 @@ const call = (method: string, url: string, payload?: unknown, headers: Record<st
 
 test("first run seeds a dashboard and nothing is editable until setup", async () => {
   const status = (await call("GET", "/api/auth/status")).json();
-  assert.deepEqual(status, { setup: false, authed: false, user: null, kiosk: false });
+  assert.deepEqual(status, { setup: false, authed: false, user: null, kiosk: false, prefs: {} });
   assert.equal((await call("GET", "/api/dashboard")).statusCode, 401, "no anonymous viewing");
   assert.equal((await call("PUT", "/api/dashboard", { tabs: [], baseRevision: 0 })).statusCode, 401);
 });
@@ -46,7 +46,7 @@ test("setup rejects short passwords, then sets one and signs in; a second setup 
   assert.match(set, /SameSite=Strict/i);
   cookie = set.split(";")[0];
   assert.equal((await call("POST", "/api/auth/setup", { password: "another password" })).statusCode, 409);
-  assert.deepEqual((await call("GET", "/api/auth/status")).json(), { setup: true, authed: true, user: { id: (await call("GET", "/api/users")).json()[0].id, username: "admin", role: "admin", totp: false, icon: "" }, kiosk: false });
+  assert.deepEqual((await call("GET", "/api/auth/status")).json(), { setup: true, authed: true, user: { id: (await call("GET", "/api/users")).json()[0].id, username: "admin", role: "admin", totp: false, icon: "" }, kiosk: false, prefs: {} });
   const dash = (await call("GET", "/api/dashboard")).json();
   assert.equal(dash.tabs[0].name, "Home");
 });

@@ -41,7 +41,7 @@ export function Copies() {
   const [busy, setBusy] = useState("");
   const [filePass, setFilePass] = useState("");
   const [fileReport, setFileReport] = useState<{ name: string; report: VerifyReport } | null>(null);
-  const addRef = useRef<HTMLInputElement>(null), verRef = useRef<HTMLInputElement>(null);
+  const addRef = useRef<HTMLInputElement>(null), verRef = useRef<HTMLInputElement>(null), restRef = useRef<HTMLInputElement>(null);
   const watch = useRestartWatch();
 
   const load = () => {
@@ -77,6 +77,15 @@ export function Copies() {
       const r = await api.post<{ name: string; report: VerifyReport }>("/api/backup/snapshots/upload", form);
       setReport({ name: r.name, report: r.report }); sn.ok(`Added to the list as ${r.name}.`); load();
     } catch (e) { sn.bad(e); } finally { setBusy(""); if (addRef.current) addRef.current.value = ""; }
+  };
+  const restoreFromFile = async (f: File | undefined) => {
+    if (!f) return;
+    sn.clear(); setBusy("upload"); setReport(null);
+    try {
+      const form = new FormData(); form.append("file", f);
+      const r = await api.post<{ name: string; report: VerifyReport }>("/api/backup/snapshots/upload", form);
+      setRestoring({ name: r.name, report: r.report, force: false }); load();
+    } catch (e) { sn.bad(e); } finally { setBusy(""); if (restRef.current) restRef.current.value = ""; }
   };
   const verifyFile = async (f: File | undefined) => {
     if (!f) return;
@@ -128,6 +137,8 @@ export function Copies() {
             <button className="btn pri" disabled={busy === "make"} onClick={() => void makeCopy()}>{busy === "make" ? "Saving…" : "Save a copy now"}</button>
             <input ref={addRef} type="file" accept=".db,.gz,.tar.gz,application/octet-stream,application/gzip" hidden onChange={e => void upload(e.target.files?.[0])} />
             <button className="btn" disabled={busy === "upload"} onClick={() => addRef.current?.click()}>{busy === "upload" ? "Checking…" : "Add a copy from a file…"}</button>
+            <input ref={restRef} type="file" accept=".db,.gz,.tar.gz,application/octet-stream,application/gzip" hidden onChange={e => void restoreFromFile(e.target.files?.[0])} />
+            <button className="btn" disabled={busy === "upload"} onClick={() => restRef.current?.click()} title="Pick a database copy or Complete backup from your computer and restore it in one step">Restore from a file…</button>
             <a className="btn" href="/api/backup/complete" download title="The database and every saved icon in one file">Download a Complete backup</a>
           </span>
         </Row>

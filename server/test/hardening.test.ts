@@ -185,6 +185,24 @@ test("idle sign-out applies to admins only, and real activity keeps the session 
   await call("PUT", "/api/settings", { idleMinutes: 0 });
 });
 
+test("each account keeps its own theme, accent and last tab in the database", async () => {
+  viewer = cookieOf(await raw(ctx, "POST", "/api/auth/login", { username: "wall", password: "viewer password 1" }, H));
+  assert.deepEqual((await call("GET", "/api/auth/status")).json().prefs, {});
+  const put = await call("PUT", "/api/auth/prefs", { theme: "glass", accent: "#35c5f4" }, viewer);
+  assert.equal(put.statusCode, 200, "a read-only viewer may save their own look");
+  assert.deepEqual((await call("GET", "/api/auth/status", undefined, viewer)).json().prefs, { theme: "glass", accent: "#35c5f4" });
+  assert.deepEqual((await call("GET", "/api/auth/status")).json().prefs, {}, "the admin is unaffected");
+  await call("PUT", "/api/auth/prefs", { theme: "nonsense", accent: "red" }, viewer);
+  const realTab = (ctx.db.prepare("SELECT id FROM tabs LIMIT 1").get() as { id: string }).id;
+  await call("PUT", "/api/auth/prefs", { tab: realTab }, viewer);
+  assert.equal((await call("GET", "/api/auth/status", undefined, viewer)).json().prefs.tab, realTab);
+  await call("PUT", "/api/auth/prefs", { tab: "abc" }, viewer);
+  assert.equal((await call("GET", "/api/auth/status", undefined, viewer)).json().prefs.tab, "", "a tab that does not exist is not stored");
+  await call("PUT", "/api/auth/prefs", { tab: realTab }, viewer);
+  const p = (await call("GET", "/api/auth/status", undefined, viewer)).json().prefs;
+  assert.equal(p.theme, ""); assert.equal(p.accent, ""); assert.equal(p.tab, realTab);
+});
+
 // ------------------------------------------------------------------ API tokens
 
 test("API tokens: shown once, read-only vs read-write, never able to touch people, backups or sharing", async () => {
@@ -406,5 +424,5 @@ test("update check: off by default and silent; when on it asks GitHub once and s
 test("restore-safe: old data folders upgrade to the current layout with their sessions and metrics intact", async () => {
   assert.ok(existsSync(join(dir, "homebase.db")));
   assert.ok(readdirSync(dir).length > 0);
-  assert.equal((ctx.db.prepare("SELECT v FROM meta WHERE k = 'schema_version'").get() as any).v, "7");
+  assert.equal((ctx.db.prepare("SELECT v FROM meta WHERE k = 'schema_version'").get() as any).v, "8");
 });

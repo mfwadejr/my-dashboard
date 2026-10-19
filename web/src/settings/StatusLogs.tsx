@@ -92,7 +92,7 @@ function LogPanel() {
         <a className="btn sm" href={exportUrl} download>Export CSV</a>
       </div>
       <div className="loglist" aria-busy={busy}>
-        {rows.length === 0 && <p className="sub" style={{ padding: 12 }}>{busy ? "Searching…" : q || level || source || range ? "Nothing matches." : "The log is empty."}</p>}
+        {rows.length === 0 && <p className="sub pad12">{busy ? "Searching…" : q || level || source || range ? "Nothing matches." : "The log is empty."}</p>}
         {rows.map(r => (
           <div key={r.id} className={`logrow ${r.level}`}>
             <span className="sub logt">{fmtDateTime(r.ts, settings)}</span><Pill tone={TONE[r.level]}>{r.level}</Pill><span className="sub logs">{r.source}</span><span className="logm">{r.message}</span>

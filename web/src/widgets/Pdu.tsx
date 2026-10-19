@@ -38,7 +38,7 @@ export function Pdu(props: WidgetProps) {
           <div key={p.id} className="pdu">
             <div className="row sp"><b className="trunc">{p.name}</b><Pill tone={p.state === "ONLINE" ? "ok" : "bad"}>{p.state.toLowerCase().replace(/_/g, " ")}</Pill></div>
             <div className="row sp">
-              <div className="big" style={{ fontSize: 26 }}>{p.totalW !== null ? `${Math.round(p.totalW)} W` : "–"}</div>
+              <div className="big md">{p.totalW !== null ? `${Math.round(p.totalW)} W` : "–"}</div>
               <span className="sub">{p.budgetW ? `of ${Math.round(p.budgetW)} W` : p.uptimeSec ? `up ${uptime(p.uptimeSec)}` : ""}</span>
             </div>
             {props.tile.h >= 2 && (p.voltageV !== null || p.currentA !== null) && (
@@ -46,7 +46,7 @@ export function Pdu(props: WidgetProps) {
                 p.outlets.length > 0 && `${p.outlets.filter((o: any) => o.on).length}/${p.outlets.length} on`, p.uptimeSec && p.budgetW && `up ${uptime(p.uptimeSec)}`].filter(Boolean).join(" · ")}</div>
             )}
             {p.budgetW && p.totalW !== null && <Bar value={p.totalW / p.budgetW} tone={p.totalW / p.budgetW > 0.8 ? "warn" : undefined} />}
-            {p.totalW === null && p.fields && <div className="sub" style={{ wordBreak: "break-word" }}>No watt reading found. UniFi sent: {p.fields}</div>}
+            {p.totalW === null && p.fields && <div className="sub brk">No watt reading found. UniFi sent: {p.fields}</div>}
             {props.tile.h >= 3 && (
               <div className="outlets">
                 {p.outlets.map((o: any) => (

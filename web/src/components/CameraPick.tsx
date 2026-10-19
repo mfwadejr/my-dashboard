@@ -13,12 +13,12 @@ export function CameraPick({ cameras, current, config, onConfig, onPick, onAdd, 
         {cameras.length === 0 && <div className="empty-note">No cameras yet.</div>}
         {cameras.map(c => (
           <div key={c.id} className="li">
-            <IconButton icon={c.icon} iconRef={c.iconRef} name={c.name} size={22} onChange={async v => { await assignIcon("camera", c.id, v); onChanged?.(); }} /><span style={{ flex: 1 }}><b>{c.name}</b>{c.id === current ? <span className="sub"> · showing</span> : null}</span>
+            <IconButton icon={c.icon} iconRef={c.iconRef} name={c.name} size={22} onChange={async v => { await assignIcon("camera", c.id, v); onChanged?.(); }} /><span className="f1"><b>{c.name}</b>{c.id === current ? <span className="sub"> · showing</span> : null}</span>
             <span className="row"><button className="btn sm" onClick={() => onEdit(c.id)}>Edit</button><button className="btn sm pri" onClick={() => onPick(c.id)}>Use</button></span>
           </div>
         ))}
       </div>
-      <div className="form" style={{ marginTop: 12 }}>
+      <div className="form mt12">
         <Field label="Show as" hint="Snapshots are a picture refreshed every few seconds. They use far less bandwidth than live video.">
           <select value={String(config.mode ?? "live")} onChange={e => onConfig({ mode: e.target.value })}><option value="live">Live video</option><option value="snapshot">Snapshot, refreshed</option></select>
         </Field>

@@ -5,7 +5,7 @@ import type { Deps } from "./deps.js";
 
 const OPEN = new Set(["/api/health", "/api/auth/status", "/api/auth/login", "/api/auth/login/2fa", "/api/auth/setup", "/api/share/open"]);
 /** Changes a read-only viewer is still allowed to make: signing out and changing their own password. */
-const VIEWER_WRITES = new Set(["/api/auth/logout", "/api/auth/logout-all", "/api/auth/password", "/api/auth/activity"]);
+const VIEWER_WRITES = new Set(["/api/auth/logout", "/api/auth/logout-all", "/api/auth/password", "/api/auth/activity", "/api/auth/prefs"]);
 const isOwnSecurity = (path: string) => path.startsWith("/api/auth/2fa/");
 
 /** One rule for the whole app: nobody sees anything without signing in or holding a valid link. */

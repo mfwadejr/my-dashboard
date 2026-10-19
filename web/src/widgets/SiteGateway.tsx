@@ -16,7 +16,7 @@ export function SiteGateway(props: WidgetProps) {
       const attention = [...d.attention].sort((a: any, b: any) => Number(b.severity === "critical") - Number(a.severity === "critical"));
       const render: Record<string, () => ReactNode> = {
         status: () => (
-          <div className="row" style={{ flexWrap: "wrap" }}>
+          <div className="row wrap">
             <Pill tone={tone(d.gateway.healthy)}>Gateway</Pill>
             <Pill tone={tone(d.services.http)}>HTTP</Pill>
             {d.services.httpsConfigured && <Pill tone={tone(d.services.https)}>HTTPS</Pill>}
@@ -51,7 +51,7 @@ export function SiteGateway(props: WidgetProps) {
         certs: () => (
           <div className="row sp">
             <span className="sub">Expiring certificates</span>
-            <span className="row" style={{ gap: 6 }}>
+            <span className="row g6">
               <Pill tone={d.certificates.within7Days ? "bad" : "mute"}>{d.certificates.within7Days} in 7 days</Pill>
               <Pill tone={d.certificates.within30Days ? "warn" : "mute"}>{d.certificates.within30Days} in 30 days</Pill>
             </span>

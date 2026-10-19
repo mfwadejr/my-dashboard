@@ -51,12 +51,12 @@ export function ShareView({ token }: { token: string }) {
       <header className="sharehead">
         <div className="logo"><i />{info.name}</div>
         <span className="sub">{info.cameras.length} camera{info.cameras.length === 1 ? "" : "s"}{left !== null ? ` · link ends in ${left > 86400e3 ? Math.round(left / 86400e3) + " days" : left > 3600e3 ? Math.round(left / 3600e3) + " hours" : Math.max(1, Math.round(left / 60e3)) + " minutes"}` : ""}</span>
-        <span style={{ marginLeft: "auto" }} className="row">
+        <span className="row ml-auto">
           <button className={`btn sm ${mode === "live" ? "pri" : ""}`} onClick={() => setMode("live")}>Live</button>
           <button className={`btn sm ${mode === "pictures" ? "pri" : ""}`} onClick={() => setMode("pictures")}>Pictures</button>
         </span>
       </header>
-      {info.cameras.length === 0 && <p className="sub" style={{ padding: 20 }}>The cameras in this link were removed.</p>}
+      {info.cameras.length === 0 && <p className="sub pad20">The cameras in this link were removed.</p>}
       <div className={`sharegrid n${Math.min(info.cameras.length, 4)}`}>
         {info.cameras.map(c => (
           <figure key={c.id} className="sharecam">

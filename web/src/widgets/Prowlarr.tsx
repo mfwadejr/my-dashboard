@@ -53,9 +53,9 @@ export function Prowlarr(props: WidgetProps) {
           </>
         ),
         stats: () => (
-          <div className="row sp" style={{ flexWrap: "wrap", gap: 6 }}>
+          <div className="row sp g6 wrap">
             <span className="sub">{d.totals.successPct === null || d.totals.successPct === undefined ? "No searches yet" : `${d.totals.successPct}% of searches worked`}</span>
-            <span className="row" style={{ gap: 6 }}>
+            <span className="row g6">
               <Pill tone={d.totals.failed ? "warn" : "mute"}>{d.totals.failed} failed search{d.totals.failed === 1 ? "" : "es"}</Pill>
               <Pill tone={d.totals.failedGrabs ? "warn" : "mute"}>{d.totals.failedGrabs} failed grab{d.totals.failedGrabs === 1 ? "" : "s"}</Pill>
             </span>

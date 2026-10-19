@@ -11,7 +11,7 @@ Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 - Then: generic custom-API connection (address, auth header, chosen fields) and a shared "service status" tile; integrations in batches of five or six chosen from what Marvin runs (Plex/Jellyfin/Seerr first), verified before the next batch; look and feel (background image, themes, admin-only custom CSS); tab visibility per person before full boards. Translations and Docker discovery stay later.
 
 ## Open
-- Platform follow-ups: external alerts (ntfy/Discord/webhook) deferred by choice; OIDC sign-in; per-person permissions beyond Admin/Viewer; UI restore of a database copy (today: stop the container and replace homebase.db).
+- Platform follow-ups: external alerts (ntfy/Discord/webhook) deferred by choice; OIDC sign-in; per-person permissions beyond Admin/Viewer.
 - Competitor gaps to schedule: global search across tiles and links, bookmarks tile with icon library, up/down dots on any link, multiple boards, themes and background image, more integrations (Plex/Jellyfin/Seerr, Pi-hole, Proxmox, Home Assistant, qBittorrent), translations, Docker label auto-discovery.
 - Unraid network graph like ZimaOS: waiting on what this Unraid version exposes. Press Test on the Unraid connection and note the "Network-related fields" line.
 
@@ -21,6 +21,8 @@ Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 - Verify against real hardware: Protect, Prowlarr, Site Gateway, Unraid, ZimaOS.
 
 ## Done
+- update43: Settings → Data & backup → Backups has a one-step "Restore from a file…" (pick a database copy or Complete backup, see the checks, confirm; a safety copy is saved first and Homebase restarts). Saved tab in account preferences is only stored if the tab exists. Removed an unused leftover file.
+- update42: Site-wide style clean-up. Every colour, font, size, radius, shadow and form control now comes from one set of variables at the top of the stylesheet (styles.css); inline styles were replaced with shared classes. All inputs, dropdowns (custom arrow, themed menu) and text areas share one look, with a single compact variant for tile/group toolbars. Every scrollbar is themed in all three themes. Accent presets live in the stylesheet, the time zone is a themed dropdown, and the browser colour bar follows the theme. Your theme, accent colour and last tab are now saved to your account in the database (migration 8) instead of the browser, so they follow you between screens. Kept per screen on purpose: wall display mode, the idle-sign-out flag and the Data sub-tab.
 - update41: Settings → Data & backup is split into four tabs (Backups, Export & restore, History & log, Upkeep & reset) so it no longer scrolls forever; the last tab used is remembered for the session.
 - update40: Select all / Select none when importing cameras from UniFi Protect and when choosing the cameras for a camera wall.
 - update39: empty camera and camera-wall tiles (no camera chosen, or the camera was removed) have proper padding instead of text touching the edge.

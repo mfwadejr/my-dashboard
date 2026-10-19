@@ -63,16 +63,16 @@ export function NetChart({ net, points, tall }: { net: any; points: Array<{ t: n
     <div className="net">
       <div className="row sp"><span className="sub">Network</span><b>{net.iface}</b></div>
       {rows.length > 1 ? (
-        <svg className="netchart" viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto" }} role="img" aria-label="Live network speed">
-          {[0, 1, 2, 3].map(i => { const v = step * i, y = py(v * div); return <g key={i}><line x1={L} x2={W - R} y1={y} y2={y} stroke="var(--line)" strokeWidth="1" /><text x={L - 6} y={y + 4} textAnchor="end" fontSize="11" fill="var(--mute)">{Math.round(v * 10) / 10}</text></g>; })}
+        <svg className="netchart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Live network speed">
+          {[0, 1, 2, 3].map(i => { const v = step * i, y = py(v * div); return <g key={i}><line x1={L} x2={W - R} y1={y} y2={y} stroke="var(--line)" strokeWidth="1" /><text x={L - 6} y={y + 4} textAnchor="end" className="axis">{Math.round(v * 10) / 10}</text></g>; })}
           <path d={area(down)} fill="var(--ok)" opacity=".18" /><path d={smooth(down, T, H - B)} fill="none" stroke="var(--ok)" strokeWidth="1.8" />
           <path d={area(up)} fill="var(--accent)" opacity=".18" /><path d={smooth(up, T, H - B)} fill="none" stroke="var(--accent)" strokeWidth="1.8" />
         </svg>
-      ) : <div className="sparkline-empty" style={{ height: tall ? 120 : 80 }}>collecting live data…</div>}
-      <div className="row" style={{ gap: 14 }}>
+      ) : <div className={`sparkline-empty ${tall ? "h120" : "h80"}`}>collecting live data…</div>}
+      <div className="row g14">
         <span className="sub">{unit}</span>
-        <span className="sub"><span style={{ color: "var(--accent)" }}>↑</span> {fmt(upNow, unit)}</span>
-        <span className="sub"><span style={{ color: "var(--ok)" }}>↓</span> {fmt(downNow, unit)}</span>
+        <span className="sub"><span className="c-accent">↑</span> {fmt(upNow, unit)}</span>
+        <span className="sub"><span className="c-ok">↓</span> {fmt(downNow, unit)}</span>
       </div>
     </div>
   );

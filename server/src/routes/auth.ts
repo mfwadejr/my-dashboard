@@ -8,6 +8,12 @@ import type { Deps } from "../deps.js";
 import { hashRecovery, looksLikeRecovery, newRecoveryCodes, newSecret, otpauthUrl, verifyTotp } from "../totp.js";
 import { getSettings } from "../settings.js";
 
+export interface Prefs { theme?: string; accent?: string; tab?: string }
+function readPrefs(db: Deps["db"], userId: string): Prefs {
+  const row = db.prepare("SELECT prefs FROM users WHERE id = ?").get(userId) as { prefs: string } | undefined;
+  try { const v = JSON.parse(row?.prefs ?? "{}"); return v && typeof v === "object" ? v : {}; } catch { return {}; }
+}
+
 export function authRoutes(app: FastifyInstance, d: Deps): void {
   const { db, access } = d;
 
@@ -15,7 +21,22 @@ export function authRoutes(app: FastifyInstance, d: Deps): void {
     const p = access.viewer(request);
     const user = !p ? null : p.kind === "user" ? { id: p.user.id, username: p.user.username, role: p.user.role, totp: p.user.totpEnabled, icon: p.user.icon }
       : p.kind === "share" ? { id: "kiosk", username: p.share.name, role: "viewer" as const, totp: false } : { id: p.token.id, username: p.token.name, role: "viewer" as const, totp: false };
-    return { setup: isSetUp(db), authed: Boolean(p), user, kiosk: p?.kind === "share" };
+    return { setup: isSetUp(db), authed: Boolean(p), user, kiosk: p?.kind === "share", prefs: p?.kind === "user" ? readPrefs(db, p.user.id) : {} };
+  });
+
+  app.put("/api/auth/prefs", async (request, reply) => {
+    const p = access.viewer(request);
+    if (!p || p.kind !== "user") return reply.code(403).send({ error: "Sign in with an account to save your look" });
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const next = { ...readPrefs(db, p.user.id) };
+    if ("theme" in body) next.theme = ["dark", "light", "glass", "auto"].includes(String(body.theme)) ? String(body.theme) : "";
+    if ("accent" in body) next.accent = /^#[0-9a-f]{6}$/i.test(String(body.accent)) ? String(body.accent) : "";
+    if ("tab" in body) {
+      const t = String(body.tab ?? "").slice(0, 64);
+      next.tab = t && db.prepare("SELECT 1 FROM tabs WHERE id = ?").get(t) ? t : "";
+    }
+    db.prepare("UPDATE users SET prefs = ? WHERE id = ?").run(JSON.stringify(next), p.user.id);
+    return { ok: true, prefs: next };
   });
 
   app.post("/api/auth/setup", async (request, reply) => {

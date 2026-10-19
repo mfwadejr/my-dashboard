@@ -53,7 +53,7 @@ export function IntegrationsDialog({ integrations, onChanged, onClose }: { integ
           <div className="list">
             {integrations.length === 0 && <div className="empty-note">Nothing connected yet.</div>}
             {integrations.map(i => (
-              <div key={i.id} className="li"><IconButton icon={i.icon} iconRef={i.iconRef} name={i.name} size={22} onChange={async v => { await assignIcon("connection", i.id, v); onChanged(); }} /><span style={{ flex: 1 }}><b>{i.name}</b> <span className="sub">· {types.find(t => t.id === i.type)?.name ?? i.type} · {i.url}</span></span><span className="row">{addressOf(i) && <button className="btn sm" onClick={() => opener({ url: addressOf(i), name: i.name, mode: modeOf(i) })}>Open ↗</button>}<button className="btn sm" onClick={() => edit(i)}>Edit</button></span></div>
+              <div key={i.id} className="li"><IconButton icon={i.icon} iconRef={i.iconRef} name={i.name} size={22} onChange={async v => { await assignIcon("connection", i.id, v); onChanged(); }} /><span className="f1"><b>{i.name}</b> <span className="sub">· {types.find(t => t.id === i.type)?.name ?? i.type} · {i.url}</span></span><span className="row">{addressOf(i) && <button className="btn sm" onClick={() => opener({ url: addressOf(i), name: i.name, mode: modeOf(i) })}>Open ↗</button>}<button className="btn sm" onClick={() => edit(i)}>Edit</button></span></div>
             ))}
           </div>
           <h4 className="sec">Add a connection</h4>

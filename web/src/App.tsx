@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { api, uid } from "./api";
 import { useAuth, useCameras, useDashboard, useIdleGuard, useIntegrations, useLive, usePref, type AuthState } from "./hooks";
 import { SettingsProvider, useSettings } from "./settings";
 import { SignIn } from "./pages/SignIn";
 import { ShareView } from "./pages/ShareView";
 import { SettingsPage, SECTIONS, type SectionId } from "./settings/SettingsPage";
-import { ACCENTS } from "./settings/General";
 import { AccountDialog } from "./dialogs/AccountDialog";
 import type { AboutInfo } from "./types";
 import { applyLayout } from "./layout";
@@ -53,8 +52,14 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
   const { snapshots, connected, serverBuild } = useLive();
   const { integrations, refreshIntegrations } = useIntegrations(true);
   const { cameras, refreshCameras } = useCameras();
-  const [devTheme, setDevTheme] = usePref<string>("hb_theme", "");
-  const [devAccent, setDevAccent] = usePref<string>("hb_accent", "");
+  const [prefs, setPrefs] = useState(auth.prefs);
+  const savePrefs = useCallback((patch: Partial<typeof auth.prefs>) => {
+    setPrefs(p => ({ ...p, ...patch }));
+    if (!auth.kiosk) void api.put("/api/auth/prefs", patch).catch(() => {});
+  }, [auth.kiosk]);
+  const devTheme = prefs.theme ?? "", devAccent = prefs.accent ?? "";
+  const setDevTheme = (v: string) => savePrefs({ theme: v });
+  const setDevAccent = (v: string) => savePrefs({ accent: v });
   const [devKiosk, setDevKiosk] = usePref<string>("hb_kiosk", "");
   const [about, setAbout] = useState<AboutInfo | null>(null);
   const [page, setPage] = useState<SectionId | null>(parseSettingsHash);
@@ -63,7 +68,8 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
   const kiosk = auth.kiosk || kioskParam === "1" || (devKiosk === "1" && kioskParam !== "0");
   const theme = ((devTheme || settings.theme) === "auto" ? (systemDark ? "dark" : "light") : (devTheme || settings.theme)) as "dark" | "light" | "glass";
   const accent = devAccent || settings.accent;
-  const [tabId, setTabId] = usePref<string>("hb_tab", "");
+  const tabId = prefs.tab ?? "";
+  const setTabId = useCallback((v: string) => { if (kiosk) setPrefs(p => ({ ...p, tab: v })); else savePrefs({ tab: v }); }, [kiosk, savePrefs]);
   const [editing, setEditing] = useState(false);
   const query = "";
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -81,6 +87,7 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
     document.body.className = theme === "dark" ? "" : theme;
     document.documentElement.style.setProperty("--accent", accent);
     document.title = settings.name;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", getComputedStyle(document.body).getPropertyValue("--bg").trim() || "#0f1117");
   }, [theme, accent, settings.name]);
   useEffect(() => { void api.get<AboutInfo>("/api/about").then(setAbout).catch(() => {}); }, [serverBuild]);
   useEffect(() => {
@@ -363,7 +370,7 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
       </main>
       )}
       {kiosk && doc.tabs.length > 1 && <div className="kiosk-dots" role="tablist">{doc.tabs.map(t => <button key={t.id} role="tab" aria-selected={t.id === tab.id} aria-label={t.name} className={t.id === tab.id ? "on" : ""} onClick={() => setTabId(t.id)} />)}</div>}
-      {!kiosk && <footer className="foot sub">{about ? `Homebase ${about.version} · ${about.commit}` : ""}</footer>}
+      {!kiosk && <footer className="pagefoot sub">{about ? `Homebase ${about.version} · ${about.commit}` : ""}</footer>}
 
       {drag && <div ref={ghost} className="ghost" style={{ width: drag.w, height: drag.h, transform: `translate(${ghostPos.current.x}px, ${ghostPos.current.y}px)` }}>{drag.label}</div>}
       {palette && <SearchPalette doc={doc} integrations={integrations} cameras={cameras} isAdmin={isAdmin} onClose={() => setPalette(false)}

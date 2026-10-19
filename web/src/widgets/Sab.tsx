@@ -22,7 +22,7 @@ function Summary({ d, authed, act, busy }: { d: any; authed: boolean; act: Act; 
         </div>
         {authed && <button className="btn sm" disabled={busy} onClick={() => void act(d.paused ? "resume" : "pause")}>{d.paused ? "▶ Resume" : "⏸ Pause"}</button>}
       </div>
-      <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+      <div className="row g6 wrap">
         {d.status && <Pill tone={statusTone(d)}>{d.status.toLowerCase()}</Pill>}
         {d.warnings > 0 && <Pill tone="warn">{d.warnings} warning{d.warnings === 1 ? "" : "s"}</Pill>}
       </div>
@@ -43,7 +43,7 @@ function Queue({ d, tall, authed, act, busy }: { d: any; tall: boolean; authed: 
             <div className="row sp">
               <span className="sub trunc">{[item.category, formatSize(item.sizeMB), paused ? "paused" : item.timeleft].filter(Boolean).join(" · ")}</span>
               {authed && (
-                <span className="row" style={{ gap: 4 }}>
+                <span className="row g4">
                   <button type="button" className="btn sm" disabled={busy} aria-label={paused ? "Resume job" : "Pause job"} onClick={() => void act(paused ? "resumejob" : "pausejob", { id: item.id })}>{paused ? "▶" : "⏸"}</button>
                   <Confirm label="Remove job" sure="Remove?" disabled={busy} onGo={() => void act("deletejob", { id: item.id })} />
                 </span>
@@ -97,7 +97,7 @@ function History({ d, tall, authed, act, busy }: { d: any; tall: boolean; authed
             <div key={h.id || i} className="li col" title={h.failMessage ?? undefined}>
               <div className="row sp">
                 <span className="trunc">{h.name}</span>
-                <span className="row" style={{ gap: 4 }}>
+                <span className="row g4">
                   {failed && authed && h.id && <button type="button" className="btn sm" disabled={busy} onClick={() => void act("retry", { id: h.id })}>Retry</button>}
                   <Pill tone={ok ? "ok" : failed ? "bad" : "mute"}>{h.status.toLowerCase()}</Pill>
                 </span>

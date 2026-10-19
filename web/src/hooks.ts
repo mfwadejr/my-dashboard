@@ -2,12 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "./api";
 import type { AuthUser, CameraInfo, Dashboard, IntegrationInfo, Snapshot, Tab } from "./types";
 
-export interface AuthState { loaded: boolean; setup: boolean; authed: boolean; user: AuthUser | null; kiosk: boolean }
+export interface UserPrefs { theme?: string; accent?: string; tab?: string }
+export interface AuthState { loaded: boolean; setup: boolean; authed: boolean; user: AuthUser | null; kiosk: boolean; prefs: UserPrefs }
 
 export function useAuth() {
-  const [state, setState] = useState<AuthState>({ loaded: false, setup: true, authed: false, user: null, kiosk: false });
+  const [state, setState] = useState<AuthState>({ loaded: false, setup: true, authed: false, user: null, kiosk: false, prefs: {} });
   const refresh = useCallback(async () => {
-    try { const s = await api.get<{ setup: boolean; authed: boolean; user: AuthUser | null; kiosk: boolean }>("/api/auth/status"); setState({ loaded: true, ...s }); }
+    try { const s = await api.get<{ setup: boolean; authed: boolean; user: AuthUser | null; kiosk: boolean; prefs?: UserPrefs }>("/api/auth/status"); setState({ loaded: true, ...s, prefs: s.prefs ?? {} }); }
     catch { setState(s => ({ ...s, loaded: true })); }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);

@@ -92,7 +92,7 @@ export function MediaCalendar(props: WidgetProps) {
   return (
     <>
       <Title right={
-        <span className="row" style={{ gap: 4 }}>
+        <span className="row g4">
           <button type="button" className="btn sm" aria-label="Previous month" onClick={() => move(-1)}>‹</button>
           <button type="button" className="btn sm" onClick={goToday}>Today</button>
           <button type="button" className="btn sm" aria-label="Next month" onClick={() => move(1)}>›</button>

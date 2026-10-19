@@ -20,7 +20,7 @@ function Containers({ d, tall, authed, act, busy }: { d: any; tall: boolean; aut
     <div className="list">{rows.map((c: any) => (
       <div key={c.id} className="li" title={[c.status, c.image].filter(Boolean).join(" · ") || undefined}>
         <span className="trunc">{c.name}</span>
-        <span className="row" style={{ gap: 4, flex: "none" }}>
+        <span className="row g4 f0">
           {c.update && <Pill tone="warn">update</Pill>}
           <Pill tone={c.running ? "ok" : "mute"}>{c.running ? "running" : c.state || "stopped"}</Pill>
           {authed && (c.running ? (
@@ -43,7 +43,7 @@ function Vms({ d, tall, authed, act, busy }: { d: any; tall: boolean; authed: bo
     <div className="list">{rows.map((v: any) => (
       <div key={v.id} className="li">
         <span className="trunc">{v.name}</span>
-        <span className="row" style={{ gap: 4 }}>
+        <span className="row g4">
           <Pill tone={v.running ? "ok" : "mute"}>{v.state || "unknown"}</Pill>
           {authed && (v.running ? (
             <>
@@ -87,17 +87,17 @@ export function Unraid(props: WidgetProps) {
           <div className="gauges">
             <Gauge pct={d.cpuPct} label="CPU" />
             <Gauge pct={d.mem?.pct} label="RAM" warn={80} detail={d.mem?.usedB != null ? `${bytes(d.mem.usedB)}${d.mem.totalB ? ` of ${bytes(d.mem.totalB)}` : ""}` : undefined} />
-            {d.array?.hottest ? <div className={`sub${d.array.hottest > 50 ? " warn" : ""}`} style={{ gridColumn: "1 / -1", textAlign: "center" }}>Hottest disk {d.array.hottest}°C</div> : null}
+            {d.array?.hottest ? <div className={`sub span-all tc${d.array.hottest > 50 ? " warn" : ""}`}>Hottest disk {d.array.hottest}°C</div> : null}
           </div>
         ) : null,
         graph: () => (
-          <div className="col" style={{ gap: 6 }}>
+          <div className="col g6">
             <div><div className="sub">CPU, last few hours</div><Sparkline points={cpuSeries} height={tall ? 40 : 28} /></div>
             <div><div className="sub">RAM, last few hours</div><Sparkline points={memSeries} height={tall ? 40 : 28} /></div>
           </div>
         ),
         status: () => (
-          <div className="row" style={{ flexWrap: "wrap" }}>
+          <div className="row wrap">
             {d.docker && <Pill tone={d.docker.running === d.docker.total ? "ok" : "warn"}>{d.docker.running}/{d.docker.total} containers</Pill>}
             {d.docker?.updates > 0 && <Pill tone="warn">{d.docker.updates} update{d.docker.updates === 1 ? "" : "s"}</Pill>}
             {d.vms && <Pill>{d.vms.running}/{d.vms.total} VMs</Pill>}
@@ -118,12 +118,12 @@ export function Unraid(props: WidgetProps) {
           const c = d.array?.check, last = d.array?.lastCheck;
           if (!c && !last) return <div className="sub">No parity check information available.</div>;
           return (
-            <div className="col" style={{ gap: 4 }}>
+            <div className="col g4">
               {c?.running && <div><div className="row sp"><span className="sub">Parity check {c.paused ? "paused" : "running"}</span><span className="sub">{Math.round(c.progress ?? 0)}%</span></div><Bar value={(c.progress ?? 0) / 100} tone={c.errors ? "warn" : undefined} /></div>}
               {last && (
                 <div className="row sp">
                   <span className="sub">Last check {day(last.date)}</span>
-                  <span className="row" style={{ gap: 6 }}>
+                  <span className="row g6">
                     <span className="sub">{[hours(last.durationSec), last.speed].filter(Boolean).join(" · ")}</span>
                     <Pill tone={last.errors ? "warn" : /ok|complete/i.test(last.status) ? "ok" : "mute"}>{last.errors ? `${last.errors} errors` : last.status.toLowerCase() || "done"}</Pill>
                   </span>

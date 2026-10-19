@@ -3,15 +3,20 @@ import { timeZones, useSettings } from "../settings";
 import type { IntegrationInfo } from "../types";
 import { Row, Section, useSaveSettings } from "./ui";
 
-export const ACCENTS = ["#6c8cff", "#3ecf8e", "#f5a524", "#f0616d", "#c04bff", "#35c5f4"];
+/** The preset accent colours live in the site-wide CSS (--accent-1 .. --accent-6); this reads them from there. */
+const presetAccents = (): string[] => {
+  const cs = getComputedStyle(document.documentElement);
+  return [1, 2, 3, 4, 5, 6].map(i => cs.getPropertyValue(`--accent-${i}`).trim().toLowerCase());
+};
 export interface DevicePrefs { theme: string; setTheme: (v: string) => void; accent: string; setAccent: (v: string) => void; kiosk: boolean; setKiosk: (on: boolean) => void }
 
 function Swatches({ value, onPick, allowNone }: { value: string; onPick: (hex: string) => void; allowNone?: boolean }) {
+  const presets = presetAccents();
   return (
     <span className="sw" role="group" aria-label="Accent colour">
       {allowNone && <b className={`none${value === "" ? " on" : ""}`} title="Same as the dashboard" onClick={() => onPick("")}>⌀</b>}
-      {ACCENTS.map(c => <b key={c} className={c === value ? "on" : ""} style={{ background: c }} title={c} onClick={() => onPick(c)} />)}
-      <input type="color" aria-label="Custom colour" value={/^#[0-9a-f]{6}$/i.test(value) ? value : "#6c8cff"} onChange={e => onPick(e.target.value)} />
+      {presets.map((c, i) => <b key={i} className={`p${i + 1}${c === value.toLowerCase() ? " on" : ""}`} title={c} onClick={() => onPick(c)} />)}
+      <input type="color" aria-label="Custom colour" value={/^#[0-9a-f]{6}$/i.test(value) ? value : presets[0]} onChange={e => onPick(e.target.value)} />
     </span>
   );
 }
@@ -30,8 +35,9 @@ export function General({ device, integrations }: { device: DevicePrefs; integra
       <Section title="Dashboard" hint="These apply to everyone who looks at this dashboard.">
         <Row label="Name" hint="Shown at the top left."><input value={name} maxLength={40} onChange={e => setName(e.target.value)} onBlur={() => name.trim() && name !== settings.name && void s.save({ name: name.trim() })} /></Row>
         <Row label="Time zone" hint={`Used by the clock, the media calendar and the log. It is ${preview} there now.`}>
-          <input list="zones" value={tz} onChange={e => setTz(e.target.value)} onBlur={() => tz !== settings.timezone && void s.save({ timezone: tz.trim() }).then(() => undefined)} />
-          <datalist id="zones">{timeZones().map(z => <option key={z} value={z} />)}</datalist>
+          <select value={tz} onChange={e => { setTz(e.target.value); void s.save({ timezone: e.target.value }); }}>
+            {(timeZones().includes(tz) ? timeZones() : [tz, ...timeZones()]).map(z => <option key={z} value={z}>{z}</option>)}
+          </select>
         </Row>
         <Row label="Clock"><select value={settings.clock} onChange={e => void s.save({ clock: e.target.value as any })}><option value="auto">Follow the device's language</option><option value="12">12-hour</option><option value="24">24-hour</option></select></Row>
         <Row label="Week starts on"><select value={settings.weekStart} onChange={e => void s.save({ weekStart: e.target.value as any })}><option value="sun">Sunday</option><option value="mon">Monday</option></select></Row>
@@ -39,11 +45,11 @@ export function General({ device, integrations }: { device: DevicePrefs; integra
         {s.el}
       </Section>
 
-      <Section title="Appearance" hint="Choose the look everyone gets by default. Each screen can keep its own choice, which is handy for a wall display.">
+      <Section title="Appearance" hint="Choose the look everyone gets by default. Your own theme and accent colour are saved to your account and follow you to every screen you sign in on.">
         <Row label="Dashboard theme"><select value={settings.theme} onChange={e => void s.save({ theme: e.target.value as any })}><option value="dark">Dark</option><option value="light">Light</option><option value="glass">Glass</option><option value="auto">Follow the device (light or dark)</option></select></Row>
         <Row label="Dashboard accent colour"><Swatches value={settings.accent} onPick={hex => void s.save({ accent: hex })} /></Row>
-        <Row label="This device: theme"><select value={device.theme} onChange={e => device.setTheme(e.target.value)}><option value="">Same as the dashboard</option><option value="dark">Dark</option><option value="light">Light</option><option value="glass">Glass</option><option value="auto">Follow the device</option></select></Row>
-        <Row label="This device: accent"><Swatches value={device.accent} allowNone onPick={device.setAccent} /></Row>
+        <Row label="My theme"><select value={device.theme} onChange={e => device.setTheme(e.target.value)}><option value="">Same as the dashboard</option><option value="dark">Dark</option><option value="light">Light</option><option value="glass">Glass</option><option value="auto">Follow the device</option></select></Row>
+        <Row label="My accent colour"><Swatches value={device.accent} allowNone onPick={device.setAccent} /></Row>
       </Section>
 
       <Section title="Wall display" hint="For a tablet or TV that just shows the dashboard: no header, no editing, the screen stays awake, and the page reloads itself after an update.">
