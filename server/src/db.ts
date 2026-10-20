@@ -161,6 +161,18 @@ const MIGRATIONS: string[] = [
   /* 12: fields a connection should show (UniFi field picker) */ `
   ALTER TABLE integrations ADD COLUMN fields TEXT NOT NULL DEFAULT '[]';
   `,
+  /* 13: server racks and what sits in them */ `
+  CREATE TABLE racks (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, units INTEGER NOT NULL DEFAULT 42, width INTEGER NOT NULL DEFAULT 19, top_down INTEGER NOT NULL DEFAULT 0,
+    notes TEXT NOT NULL DEFAULT '', position INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
+  );
+  CREATE TABLE rack_devices (
+    id TEXT PRIMARY KEY, rack_id TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'generic', units INTEGER NOT NULL DEFAULT 1, slot INTEGER NOT NULL,
+    face TEXT NOT NULL DEFAULT 'both', width INTEGER NOT NULL DEFAULT 19, color TEXT NOT NULL DEFAULT '', ports INTEGER NOT NULL DEFAULT 0, watts REAL,
+    integration_id TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', icon TEXT NOT NULL DEFAULT '', icon_ref TEXT NOT NULL DEFAULT '', look TEXT NOT NULL DEFAULT 'drawn', created_at INTEGER NOT NULL
+  );
+  CREATE INDEX rack_devices_ix ON rack_devices(rack_id, slot);
+  `,
 ];
 
 /** Exposed for tests that need to build an older database. */

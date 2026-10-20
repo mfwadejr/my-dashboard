@@ -6,6 +6,7 @@ import { SignIn } from "./pages/SignIn";
 import { ShareView } from "./pages/ShareView";
 import { StatusView } from "./pages/StatusView";
 import { Monitoring } from "./pages/Monitoring";
+import { Racks } from "./pages/Racks";
 import { SettingsPage, SECTIONS, type SectionId } from "./settings/SettingsPage";
 import { AccountDialog } from "./dialogs/AccountDialog";
 import type { AboutInfo } from "./types";
@@ -50,6 +51,7 @@ const parseSettingsHash = (): SectionId | null => {
 };
 
 const parseMonitoringHash = () => window.location.hash === "#monitoring";
+const parseRacksHash = () => window.location.hash === "#racks";
 
 function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promise<void> }) {
   const me = auth.user!;
@@ -71,6 +73,7 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
   const [about, setAbout] = useState<AboutInfo | null>(null);
   const [page, setPage] = useState<SectionId | null>(parseSettingsHash);
   const [monitoring, setMonitoring] = useState(parseMonitoringHash);
+  const [racksPage, setRacksPage] = useState(parseRacksHash);
   const [systemDark, setSystemDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? true);
   const kioskParam = new URLSearchParams(window.location.search).get("kiosk");
   const kiosk = auth.kiosk || kioskParam === "1" || (devKiosk === "1" && kioskParam !== "0");
@@ -106,7 +109,7 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
     return () => mq.removeEventListener("change", f);
   }, []);
   useEffect(() => {
-    const f = () => { setPage(parseSettingsHash()); setMonitoring(parseMonitoringHash()); };
+    const f = () => { setPage(parseSettingsHash()); setMonitoring(parseMonitoringHash()); setRacksPage(parseRacksHash()); };
     window.addEventListener("hashchange", f);
     return () => window.removeEventListener("hashchange", f);
   }, []);
@@ -145,8 +148,9 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
   }, []);
 
   const gotoSettings = (s: SectionId) => { setEditing(false); window.location.hash = `settings/${s}`; };
-  const closeSettings = () => { window.history.pushState(null, "", window.location.pathname + window.location.search); setPage(null); setMonitoring(false); };
+  const closeSettings = () => { window.history.pushState(null, "", window.location.pathname + window.location.search); setPage(null); setMonitoring(false); setRacksPage(false); };
   const gotoMonitoring = () => { setEditing(false); window.location.hash = "monitoring"; };
+  const gotoRacks = () => { setEditing(false); window.location.hash = "racks"; };
 
   const rawTab = useMemo(() => doc?.tabs.find(t => t.id === tabId) ?? doc?.tabs[0], [doc, tabId]);
   // Every tile gets a spot (old dashboards are laid out the way they looked); nothing is saved until you change something.
@@ -328,18 +332,19 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
         <div className="logo"><i />{settings.name}</div>
         <nav className="tabs" aria-label="Tabs">
           {doc.tabs.map(t => (
-            <button key={t.id} className={`tab ${t.id === tab.id && !page && !monitoring ? "on" : ""}`} onClick={() => { if (page || monitoring) closeSettings(); if (t.id === tab.id && editing && !page) setDlg({ kind: "tab", edit: true }); else setTabId(t.id); }}>
+            <button key={t.id} className={`tab ${t.id === tab.id && !page && !monitoring && !racksPage ? "on" : ""}`} onClick={() => { if (page || monitoring || racksPage) closeSettings(); if (t.id === tab.id && editing && !page) setDlg({ kind: "tab", edit: true }); else setTabId(t.id); }}>
               {t.icon ? <Icon icon={t.icon} iconRef={t.iconRef} name={t.name} size={16} className="tab-ic" /> : t.emoji ? `${t.emoji} ` : ""}{t.name}{editing && t.id === tab.id && !page ? <span className="tedit"> ✎</span> : null}
             </button>
           ))}
           {!editing && <button className={`tab ${monitoring && !page ? "on" : ""}`} onClick={() => (monitoring ? closeSettings() : gotoMonitoring())}>Monitoring</button>}
+          {!editing && <button className={`tab ${racksPage && !page ? "on" : ""}`} onClick={() => (racksPage ? closeSettings() : gotoRacks())}>Racks</button>}
           {editing && <button className="tab add" aria-label="New tab" onClick={() => setDlg({ kind: "tab", edit: false })}>＋</button>}
         </nav>
         <button type="button" className="search" onClick={() => setPalette(true)} aria-label="Search everything">⌕ <span>Search…</span><kbd>/</kbd></button>
         {isAdmin ? <button className={`conn ${connected ? "on" : ""}`} aria-label="Live updates: open the status page" title={connected ? "Live updates connected. Click for status." : "Reconnecting… Click for status."} onClick={() => gotoSettings("status")} />
           : <span className={`conn ${connected ? "on" : ""}`} title={connected ? "Live updates connected" : "Reconnecting…"} />}
-        {isAdmin && editing && !page && !monitoring && <button className="btn" onClick={() => setDlg({ kind: "connections" })}>Connections</button>}
-        {isAdmin && !page && !monitoring && <button className={`btn ${editing ? "pri" : ""}`} onClick={async () => { if (editing) await retry(); setEditing(!editing); }}>{editing ? "✓ Done" : "✎ Edit"}</button>}
+        {isAdmin && editing && !page && !monitoring && !racksPage && <button className="btn" onClick={() => setDlg({ kind: "connections" })}>Connections</button>}
+        {isAdmin && !page && !monitoring && !racksPage && <button className={`btn ${editing ? "pri" : ""}`} onClick={async () => { if (editing) await retry(); setEditing(!editing); }}>{editing ? "✓ Done" : "✎ Edit"}</button>}
         {isAdmin && !editing && <button className={`btn ${page ? "pri" : ""}`} aria-label="Settings" title="Settings" onClick={() => (page ? closeSettings() : gotoSettings("general"))}>⚙{page ? " Close" : ""}</button>}
         {!editing && <button className="btn" title="Your account" onClick={() => setDlg({ kind: "account" })}>{me.icon ? <Icon icon={me.icon} iconRef={me.iconRef} name={me.username} size={16} className="tab-ic" /> : null}{me.username}</button>}
         {!editing && !auth.kiosk && <button className="btn" onClick={async () => { await api.post("/api/auth/logout"); void refreshAuth(); }}>Sign out</button>}
@@ -364,6 +369,8 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
         </main>
       ) : monitoring ? (
         <main className="settings-main"><Monitoring me={me} onSettings={() => gotoSettings("monitors")} /></main>
+      ) : racksPage ? (
+        <main className="settings-main"><Racks me={me} integrations={integrations} snapshots={snapshots} /></main>
       ) : (
       <main className={editing ? "edit" : ""}>
         {editing && <div className="savestate sub">{save === "saving" ? "Saving…" : save === "saved" ? "All changes saved" : "Drag a tile anywhere to move it, or into another group. Drag the corner to resize. Esc cancels a drag."}</div>}
@@ -386,7 +393,7 @@ function Home({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => Promi
 
       {drag && <div ref={ghost} className="ghost" style={{ width: drag.w, height: drag.h, transform: `translate(${ghostPos.current.x}px, ${ghostPos.current.y}px)` }}>{drag.label}</div>}
       {palette && <SearchPalette doc={doc} integrations={integrations} cameras={cameras} isAdmin={isAdmin} onClose={() => setPalette(false)}
-        onTab={(tid, tile) => { if (page || monitoring) closeSettings(); setTabId(tid); if (tile) window.setTimeout(() => { const el = document.querySelector(`[data-tile="${tile}"]`); el?.scrollIntoView({ block: "center", behavior: "smooth" }); el?.classList.add("flash"); window.setTimeout(() => el?.classList.remove("flash"), 1800); }, 150); }}
+        onTab={(tid, tile) => { if (page || monitoring || racksPage) closeSettings(); setTabId(tid); if (tile) window.setTimeout(() => { const el = document.querySelector(`[data-tile="${tile}"]`); el?.scrollIntoView({ block: "center", behavior: "smooth" }); el?.classList.add("flash"); window.setTimeout(() => el?.classList.remove("flash"), 1800); }, 150); }}
         onSettings={gotoSettings} onCamera={id => setDlg({ kind: "lightbox", cameraId: id })} />}
       {dlg?.kind === "account" && <AccountDialog me={me} onSignedOut={() => void refreshAuth()} onClose={() => setDlg(null)} />}
       {dlg?.kind === "connections" && <IntegrationsDialog integrations={integrations} onChanged={refreshIntegrations} onClose={() => setDlg(null)} />}

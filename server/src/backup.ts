@@ -11,6 +11,7 @@ import { cleanOpenMode, cleanOpenUrl } from "./openaddr.js";
 import { DEFAULTS, getSettings, updateSettings } from "./settings.js";
 import { checkImage, cleanIcon, cleanIconRef } from "./icons.js";
 import { referencedIcons } from "./iconuse.js";
+import { parseRacks, type Rack } from "./racks.js";
 import { versionInfo } from "./version.js";
 import { cleanMonitor, exportMonitors, type MonitorConfig } from "./monitors.js";
 import { finish, verifyDatabaseFile, type Check, type VerifyReport } from "./verify.js";
@@ -30,6 +31,7 @@ export interface BackupFile {
   /** The saved icon files the rest of the file refers to, by name ("used/..."), as base64. */
   icons?: Record<string, string>;
   /** Uptime monitors and public status pages (no history, and status page links are made new on import). */
+  racks?: Rack[];
   monitors?: Array<MonitorConfig & { secretsOmitted?: boolean }>;
   statusPages?: Array<{ id: string; title: string; message: string; tone?: string; domain?: string; monitors: string[]; enabled: boolean; incidents?: Array<{ title: string; body: string; style: string; pinned: boolean; resolved: boolean }> }>;
 }
@@ -85,7 +87,7 @@ export function exportBackup(deps: Deps, passphrase: string, opts: { accounts?: 
   }
   const { monitors, statusPages } = exportMonitors(deps.monitors, db);
   return {
-    icons, monitors, statusPages,
+    icons, monitors, statusPages, racks: deps.racks.exportAll(),
     accountsIncluded: Boolean(opts.accounts),
     format: BACKUP_FORMAT, formatVersion: FORMAT_VERSION, app: { version: v.version, commit: v.commit }, createdAt: new Date().toISOString(),
     settings: { ...getSettings(db) }, dashboard: { tabs: readDashboard(db).tabs }, integrations, cameras,
@@ -136,7 +138,7 @@ export function parseBackup(raw: unknown): BackupFile {
     format: BACKUP_FORMAT, formatVersion: f.formatVersion, app: { version: String(f.app?.version ?? "?"), commit: String(f.app?.commit ?? "?") }, createdAt: String(f.createdAt ?? ""),
     settings: f.settings && typeof f.settings === "object" ? f.settings : {}, dashboard: dash, integrations, cameras, secrets: s ?? null,
     accountsIncluded: Boolean(f.accountsIncluded && s),
-    icons: parseIcons(f.icons), monitors, statusPages
+    icons: parseIcons(f.icons), monitors, statusPages, racks: parseRacks(f.racks)
   };
 }
 
@@ -170,7 +172,7 @@ export function previewBackup(deps: Deps, file: BackupFile, opts: ImportOptions)
   return {
     accounts,
     createdAt: file.createdAt, app: file.app, encrypted: Boolean(file.secrets), passphraseOk,
-    tabs: file.dashboard.tabs.length, groups, tiles, integrations: file.integrations.length, cameras: file.cameras.length, monitors: (file.monitors ?? []).length, icons: Object.keys(file.icons ?? {}).length,
+    tabs: file.dashboard.tabs.length, groups, tiles, integrations: file.integrations.length, cameras: file.cameras.length, monitors: (file.monitors ?? []).length, racks: (file.racks ?? []).length, icons: Object.keys(file.icons ?? {}).length,
     adds: {
       tabs: replace ? file.dashboard.tabs.length : file.dashboard.tabs.filter(t => !haveTab.has(t.id)).length,
       integrations: replace ? file.integrations.length : file.integrations.filter(i => !haveInt.has(i.id)).length,
@@ -251,6 +253,13 @@ export async function applyBackup(deps: Deps, file: BackupFile, opts: ImportOpti
     for (const m of deps.monitors.list()) deps.monitors.update(m.id, {}); // restarts each one's schedule
   }
 
+  // Racks and what sits in them.
+  let racksAdded = 0;
+  if ((file.racks ?? []).length || replace) {
+    if (replace) deps.racks.clearAll();
+    racksAdded = deps.racks.importAll(file.racks ?? [], !replace).racks;
+  }
+
   const current = readDashboard(db);
   let tabs: TabDoc[];
   if (replace) { tabs = file.dashboard.tabs; added.tabs = tabs.length; }
@@ -277,7 +286,7 @@ export async function applyBackup(deps: Deps, file: BackupFile, opts: ImportOpti
   await go2rtc.reconcile().catch(() => {});
   logEvent(db, "info", "backup", `${actor} imported a backup (${opts.mode}): ${added.tabs} tab(s), ${added.integrations} connection(s), ${added.cameras} camera(s) added${needsSecrets.length ? `; ${needsSecrets.length} still need a password or key` : ""}`);
   if (accountsResult) logEvent(db, "warn", "security", `${actor} restored accounts from a backup (${opts.mode}): ${accountsResult.added} added, ${accountsResult.removed} removed`);
-  return { mode: opts.mode, added: { ...added, monitors: monitorsAdded }, skipped, needsSecrets, accounts: accountsResult, icons: iconsWritten };
+  return { mode: opts.mode, added: { ...added, monitors: monitorsAdded, racks: racksAdded }, skipped, needsSecrets, accounts: accountsResult, icons: iconsWritten };
 }
 
 const ROLE = new Set(["admin", "viewer"]);
@@ -345,6 +354,7 @@ export function verifyJsonBackup(deps: Deps, raw: unknown, passphrase: string, s
     const note = (v: unknown) => { if (typeof v === "string" && v.startsWith("used/")) wanted.add(v.split("?")[0]); };
     for (const t of file.dashboard.tabs) { note(t.icon); for (const g of t.groups) for (const tile of g.tiles) { const c = tile.config as { icon?: string; items?: Array<{ icon?: string }> }; note(c.icon); for (const it of Array.isArray(c.items) ? c.items : []) note(it?.icon); } }
     for (const x of [...file.integrations, ...file.cameras]) note(x.icon);
+    for (const r of file.racks ?? []) for (const d of r.devices) note(d.icon);
     counts.icons = Object.keys(file.icons ?? {}).length;
     const missing = [...wanted].filter(n => !(file.icons ?? {})[n]);
     if (!wanted.size) add("icons", "Icons", "pass", "No saved icons are used.");

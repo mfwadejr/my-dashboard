@@ -2,14 +2,14 @@ import { readDashboard, writeDashboard } from "./dashboard.js";
 import { tx, type DB } from "./db.js";
 import { iconFile } from "./icons.js";
 
-export type HolderKind = "connection" | "camera" | "account" | "token" | "tab" | "tile" | "launcher";
+export type HolderKind = "connection" | "camera" | "account" | "token" | "tab" | "tile" | "launcher" | "rackdevice";
 /** Something that carries an icon. `key` is "kind:id" (a Launcher item is "launcher:<tile>/<item>"). */
 export interface Holder { key: string; kind: HolderKind; id: string; name: string; icon: string; iconRef: string }
-export const KIND_NAMES: Record<HolderKind, string> = { connection: "Connection", camera: "Camera", account: "Person", token: "API token", tab: "Tab", tile: "Tile", launcher: "Launcher item" };
+export const KIND_NAMES: Record<HolderKind, string> = { connection: "Connection", camera: "Camera", account: "Person", token: "API token", tab: "Tab", tile: "Tile", launcher: "Launcher item", rackdevice: "Rack device" };
 
-const TABLES: Array<{ kind: "connection" | "camera" | "account" | "token"; table: string; name: string }> = [
+const TABLES: Array<{ kind: "connection" | "camera" | "account" | "token" | "rackdevice"; table: string; name: string }> = [
   { kind: "connection", table: "integrations", name: "name" }, { kind: "camera", table: "cameras", name: "name" },
-  { kind: "account", table: "users", name: "username" }, { kind: "token", table: "api_tokens", name: "name" }
+  { kind: "account", table: "users", name: "username" }, { kind: "token", table: "api_tokens", name: "name" }, { kind: "rackdevice", table: "rack_devices", name: "name" }
 ];
 
 /** Every place an icon can be, with what it holds now. */
@@ -36,7 +36,7 @@ export function listHolders(db: DB): Holder[] {
 export function referencedIcons(db: DB): Set<string> {
   const out = new Set<string>();
   const add = (v: unknown) => { if (typeof v === "string" && v) out.add(iconFile(v)); };
-  for (const t of ["integrations", "cameras", "users", "api_tokens", "tabs"]) {
+  for (const t of ["integrations", "cameras", "users", "api_tokens", "tabs", "rack_devices"]) {
     try { for (const r of db.prepare(`SELECT icon FROM ${t} WHERE icon <> ''`).all() as unknown as Array<{ icon: string }>) add(r.icon); } catch { /* an older layout has no icon column */ }
   }
   try {

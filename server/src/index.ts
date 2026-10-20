@@ -36,6 +36,8 @@ import { migrateLegacyIcons } from "./iconmigrate.js";
 import { Poller } from "./poller.js";
 import { Monitors, StatusPages } from "./monitors.js";
 import { monitorRoutes, statusOpenRoutes } from "./routes/monitors.js";
+import { rackRoutes } from "./routes/racks.js";
+import { Racks } from "./racks.js";
 import { LiveSampler } from "./live.js";
 import { Store } from "./store.js";
 import { authRoutes } from "./routes/auth.js";
@@ -59,7 +61,8 @@ export async function buildApp(config: Config) {
   const version = versionInfo();
   const destinations = new Destinations(db, box);
   const monitors = new Monitors(db, box), statusPages = new StatusPages(db, box, monitors);
-  const deps: Deps = { monitors, statusPages, config, db, box, store, hub, poller, go2rtc, shares, access, tokens, destinations, icons, maintenance: undefined as unknown as Maintenance, restart: () => {}, backups: undefined as unknown as AutoBackup };
+  const racks = new Racks(db);
+  const deps: Deps = { monitors, statusPages, racks, config, db, box, store, hub, poller, go2rtc, shares, access, tokens, destinations, icons, maintenance: undefined as unknown as Maintenance, restart: () => {}, backups: undefined as unknown as AutoBackup };
   deps.backups = new AutoBackup(() => deps, config.dataDir);
   deps.maintenance = new Maintenance(() => deps);
   try { rmSync(deps.backups.tmp, { recursive: true, force: true }); } catch { /* leftovers from an interrupted upload */ }
@@ -123,6 +126,7 @@ export async function buildApp(config: Config) {
   integrationRoutes(app, db, store, poller, hub, requireAuth, live, access, version.build);
   iconRoutes(app, deps);
   monitorRoutes(app, deps);
+  rackRoutes(app, deps);
   statusOpenRoutes(app, deps);
   await cameraRoutes(app, deps);
 

@@ -54,3 +54,11 @@ export interface PublicStatus {
   title: string; message: string; tone: "info" | "warn" | "bad"; overall: "up" | "degraded" | "down" | "maintenance" | "unknown"; updatedAt: number; timezone: string; incidents: PublicIncident[]; maintenance: PublicMaintenance[];
   monitors: Array<{ name: string; group: string; state: MonitorState; uptime24h: number | null; uptime30d: number | null; ms: number | null; days: DayBar[] }>;
 }
+
+export type RackKind = "generic" | "switch" | "patch" | "router" | "server" | "nas" | "pdu" | "ups" | "shelf" | "blank" | "cable";
+export type RackFace = "front" | "rear" | "both";
+export interface RackDeviceInfo {
+  id: string; rackId: string; name: string; kind: RackKind; units: number; slot: number; face: RackFace; width: 19 | 10; color: string; ports: number; watts: number | null;
+  integrationId: string; notes: string; icon: string; iconRef: string; look: "drawn" | "image";
+}
+export interface RackInfo { id: string; name: string; units: number; width: 19 | 10; topDown: boolean; notes: string; position: number; devices: RackDeviceInfo[] }
