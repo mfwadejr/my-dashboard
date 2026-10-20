@@ -74,7 +74,7 @@ test("UniFi Network: clients, devices, gateway stats", async () => {
   assert.deepEqual(d.clients, { total: 3, wired: 1, wireless: 2 });
   assert.equal(d.devices.total, 4); assert.equal(d.devices.offline, 1); assert.equal(d.devices.problems[0].name, "Garage AP");
   assert.equal(d.gateway.name, "Dream Machine"); assert.equal(d.gateway.cpuPct, 12.5); assert.equal(d.gateway.rxBps, 9_000_000);
-  assert.deepEqual(d.wans.map((w: any) => [w.name, w.up, w.rxBps, w.txBps]), [["Fiber", true, 8_000_000, 2_000_000], ["Backup LTE", false, 0, 0]], "each WAN with its own throughput");
+  assert.deepEqual(d.wans.map((w: any) => [w.name, w.up, w.rxBps, w.txBps]), [["Comcast", true, 8_000_000, 2_000_000], ["T-Mobile", false, 0, 0]], "each WAN with its own throughput");
   assert.deepEqual([d.speedtest.downMbps, d.speedtest.upMbps], [940.5, 880]);
   assert.equal(d.gateway.tempC, 61);
   assert.deepEqual(d.aps.map((a: any) => [a.name, a.clients]), [["Office AP", 2], ["Garage AP", 0]]);
@@ -91,7 +91,7 @@ test("UniFi Network: clients, devices, gateway stats", async () => {
 test("UniFi Network: WAN failover and health, field catalog, picked fields, live WAN rates", async () => {
   const id = await create({ type: "unifi-network", name: "Net2", url: unifi.url, apiKey: KEY });
   const d = (await data(id)).data;
-  assert.deepEqual(d.wans.map((w: any) => [w.name, w.active, w.latencyMs, w.availabilityPct]), [["Fiber", true, 9, 99.9], ["Backup LTE", false, 48, 91.25]]);
+  assert.deepEqual(d.wans.map((w: any) => [w.name, w.active, w.latencyMs, w.availabilityPct]), [["Comcast", true, 9, 99.9], ["T-Mobile", false, 48, 91.25]]);
   assert.equal(d.publicIp, "203.0.113.5");
   assert.deepEqual(d.custom, []);
 

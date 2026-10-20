@@ -32,7 +32,7 @@ async function networkTest(ctx: Ctx): Promise<TestResult> {
 const bps = (bytesPerSec: unknown): number | null => { const n = firstNum(bytesPerSec); return n === null ? null : n * 8; };
 
 /** Per-WAN link state and throughput from the gateway's classic device record (wan1, wan2, ...). Optional: an API key may not be accepted there. */
-export function extractWans(classic: any): Array<{ name: string; ifname: string; up: boolean | null; ip: string; rxBps: number | null; txBps: number | null; speedMbps: number | null; type: string; active: boolean | null; latencyMs: number | null; availabilityPct: number | null }> {
+export function extractWans(classic: any): Array<{ name: string; ifname: string; up: boolean | null; ip: string; rxBps: number | null; txBps: number | null; speedMbps: number | null; type: string; group?: string; active: boolean | null; latencyMs: number | null; availabilityPct: number | null }> {
   if (!classic || typeof classic !== "object") return [];
   const stats = classic.uptime_stats && typeof classic.uptime_stats === "object" ? classic.uptime_stats : {};
   // Which link carries the traffic now: the gateway names its current uplink (wan1, wan2 or the interface), or a link says so itself.
@@ -43,7 +43,7 @@ export function extractWans(classic: any): Array<{ name: string; ifname: string;
     const active = uplink ? uplink === k.toLowerCase() || (ifname !== "" && uplink === ifname.toLowerCase()) : w.is_uplink === undefined ? null : truthy(w.is_uplink);
     return {
       name: String(w.name ?? k.toUpperCase()), ifname, up: w.up === undefined ? null : truthy(w.up), ip: String(w.ip ?? ""),
-      rxBps: bps(w["rx_bytes-r"]), txBps: bps(w["tx_bytes-r"]), speedMbps: firstNum(w.speed), type: String(w.type ?? ""),
+      rxBps: bps(w["rx_bytes-r"]), txBps: bps(w["tx_bytes-r"]), speedMbps: firstNum(w.speed), type: String(w.type ?? ""), group: String(w.wan_networkgroup ?? w.networkgroup ?? w.network_name ?? "").toUpperCase(),
       active, latencyMs: firstNum(st?.latency_average, w.latency), availabilityPct: firstNum(st?.availability)
     };
   });
@@ -146,6 +146,21 @@ async function wanSample(ctx: Ctx): Promise<Record<string, number | null>> {
   return out;
 }
 
+/**
+ * The gateway's own record names a link by its port (eth8). The names you gave your internet connections (WAN 1, T-Mobile) live in the
+ * network settings, so they are matched by the link's WAN group, then by the settings' own order, and the port is kept as detail.
+ */
+export function nameWans<T extends { name: string; ifname: string; group?: string }>(wans: T[], confs: any[]): T[] {
+  const named = confs.filter(c => String(c?.purpose ?? "").toLowerCase() === "wan" && typeof c?.name === "string" && c.name.trim())
+    .sort((a, b) => String(a.wan_networkgroup ?? "").localeCompare(String(b.wan_networkgroup ?? ""), "en", { numeric: true }));
+  if (!named.length) return wans;
+  return wans.map((w, i) => {
+    const byGroup = w.group ? named.find(c => String(c.wan_networkgroup ?? "").toUpperCase() === w.group || String(c.name).toUpperCase() === w.group) : undefined;
+    const hit = byGroup ?? (named.length === wans.length ? named[i] : undefined);
+    return hit ? { ...w, name: String(hit.name).trim().slice(0, 40), ifname: w.ifname || (/^[a-z]+\d+$/i.test(w.name) ? w.name : "") } : w;
+  });
+}
+
 const AP_MODEL = /^(U6|U7|UAP|UWB|E7|UK|U-?LR|UBB)/i;
 const isAp = (d: any) => (Array.isArray(d?.features) ? d.features.some((f: any) => /access.?point/i.test(String(f))) : AP_MODEL.test(String(d?.model ?? "")));
 
@@ -187,7 +202,7 @@ async function networkPoll(ctx: Ctx): Promise<PollResult> {
       load1: firstNum(stats?.loadAverage1Min), tempC: null as number | null
     };
     const classicGw = await classicDevice(ctx, siteName, gw.macAddress ?? gw.mac);
-    wans = extractWans(classicGw);
+    wans = nameWans(extractWans(classicGw), await classicRows(ctx, siteName, "rest/networkconf").catch(() => []));
     speedtest = extractSpeedtest(classicGw);
     gateway.tempC = extractTemp(classicGw);
   }

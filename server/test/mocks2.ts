@@ -68,14 +68,15 @@ export function mockUnifi(tls?: { key: string; cert: string }): Promise<Mock> {
     if (p === `/proxy/network/integration/v1/sites/${SITE}/networks`) return { body: { data: [{ name: "Default", vlanId: 1, enabled: true }, { name: "IoT", vlanId: 30, enabled: true }] } };
     if (p === `/proxy/network/integration/v1/sites/${SITE}/wifi/broadcasts`) return { body: { data: [{ name: "Home", enabled: true, securityConfiguration: { type: "WPA2_WPA3" } }, { name: "Guest", enabled: false }] } };
     if (p === "/proxy/network/api/s/default/stat/device/aa%3Abb%3Acc%3A00%3A00%3A01" || p === "/proxy/network/api/s/default/stat/device/aa:bb:cc:00:00:01") return { body: { data: [{
-      wan1: { name: "Fiber", up: true, ip: "203.0.113.5", speed: 1000, "rx_bytes-r": 1_000_000, "tx_bytes-r": 250_000 },
-      wan2: { name: "Backup LTE", up: false, ip: "", "rx_bytes-r": 0, "tx_bytes-r": 0 },
+      wan1: { name: "eth8", up: true, ip: "203.0.113.5", speed: 1000, "rx_bytes-r": 1_000_000, "tx_bytes-r": 250_000 },
+      wan2: { name: "eth0", up: false, ip: "", "rx_bytes-r": 0, "tx_bytes-r": 0 },
       uplink: { name: "wan1" }, uptime_stats: { WAN: { latency_average: 9, availability: 99.9 }, WAN2: { latency_average: 48, availability: 91.25 } },
       "speedtest-status": { xput_download: "940.5", xput_upload: 880, latency: 7 }, general_temperature: 61 }] } };
     if (p === "/proxy/network/api/s/default/stat/device") return { body: { data: [{
       mac: "aa:bb:cc:00:00:01", name: "Dream Machine", model: "UDM-Pro", x_authkey: "SECRETKEY1", x_passphrase: "SECRETPASS", ssh_password: "SECRETSSH",
       wan1: { name: "Fiber", up: true, ip: "203.0.113.5", "rx_bytes-r": 1_000_000, "tx_bytes-r": 250_000 }, wan2: { name: "Backup LTE", up: false, "rx_bytes-r": 0, "tx_bytes-r": 0 },
       uplink: { name: "wan1" }, uptime_stats: { WAN: { latency_average: 9, availability: 99.9 }, WAN2: { latency_average: 48, availability: 91.25 } }, general_temperature: 61 }] } };
+    if (p === "/proxy/network/api/s/default/rest/networkconf") return { body: { data: [{ name: "LAN", purpose: "corporate" }, { name: "T-Mobile", purpose: "wan", wan_networkgroup: "WAN2" }, { name: "Comcast", purpose: "wan", wan_networkgroup: "WAN" }] } };
     if (p === "/proxy/network/api/s/default/stat/health") return { body: { data: [{ subsystem: "wan", status: "ok", wan_ip: "203.0.113.5", num_gw: 1, "rx_bytes-r": 1_000_000 }, { subsystem: "wlan", status: "ok", num_user: 2 }] } };
     if (p === "/proxy/network/api/s/default/stat/sysinfo") return { body: { data: [{ version: "9.1.120", hostname: "udm", uptime: 12345, update_available: false, anonymous_controller_id: "SECRETID" }] } };
     if (p === "/proxy/network/api/s/default/stat/sta") return { body: { data: [{ mac: "11:22:33:44:55:66", name: "Laptop", ip: "192.168.1.20", "rx_bytes-r": 5000, "tx_bytes-r": 100, x_password: "SECRETCLI", psk: "SECRETPSK" }, { mac: "11:22:33:44:55:77", hostname: "tv", "rx_bytes-r": 9000, "tx_bytes-r": 10 }] } };

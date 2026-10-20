@@ -35,7 +35,7 @@ function Wans({ d, id }: { d: any; id?: string }) {
               </span>
             </div>
             <div className="row sp"><span className="sub">↓ {rate(rx)}</span><span className="sub">↑ {rate(tx)}</span></div>
-            {(w.ip || w.speedMbps) && <div className="sub">{[w.ip, w.speedMbps ? `${w.speedMbps} Mbps link` : ""].filter(Boolean).join(" · ")}</div>}
+            {(w.ip || w.speedMbps || w.ifname) && <div className="sub">{[w.ifname && w.ifname !== w.name ? w.ifname : "", w.ip, w.speedMbps ? `${w.speedMbps} Mbps link` : ""].filter(Boolean).join(" · ")}</div>}
             {health.length > 0 ? <div className="sub">{health.join(" · ")}</div> : failover && <div className="sub">Latency and availability not reported for this link</div>}
           </div>
         );
