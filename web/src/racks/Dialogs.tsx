@@ -111,8 +111,8 @@ export function DeviceDialog({ rack, device, startAt, integrations, onDone, onCl
         {finder && <LibraryDialog onClose={() => setFinder(false)} onPick={r => {
           setFinder(false);
           setIcon(r.front ?? { icon: "", iconRef: "" }); setRear(r.rear ?? { icon: "", iconRef: "" });
-          const kind: RackKind = r.ports >= 8 ? "switch" : f.kind;
-          setF({ ...f, look: "image", name: f.name || r.name, units: Math.max(1, Math.min(rack.units, r.units)), face: r.fullDepth ? f.face : "front", kind, ports: r.ports || f.ports });
+          const kind: RackKind = (r.ports ?? 0) >= 8 ? "switch" : f.kind;
+          setF({ ...f, look: "image", name: f.name || r.name, units: r.units ? Math.max(1, Math.min(rack.units, r.units)) : f.units, face: r.fullDepth === false ? "front" : f.face, kind, ports: r.ports || f.ports });
         }} />}
         <div className="acts">
           <span>{device && <Confirm label="Remove" name="Remove this equipment from the rack" sure="Click again to remove" onGo={() => void remove()} />}</span>
@@ -124,32 +124,41 @@ export function DeviceDialog({ rack, device, startAt, integrations, onDone, onCl
 }
 
 
-interface Imported { name: string; units: number; fullDepth: boolean; ports: number; front: { icon: string; iconRef: string } | null; rear: { icon: string; iconRef: string } | null }
+interface Imported { name: string; units: number | null; fullDepth: boolean | null; ports: number | null; front: { icon: string; iconRef: string } | null; rear: { icon: string; iconRef: string } | null }
 
 /** Browses the NetBox community device library (fetched by this server) and saves the chosen model's pictures as the user's own copies. */
 function LibraryDialog({ onPick, onClose }: { onPick: (r: Imported) => void; onClose: () => void }) {
   const n = useNotice();
+  const [source, setSource] = useState<"drawio" | "netbox">("drawio");
   const [mfrs, setMfrs] = useState<string[]>([]);
-  const [mfr, setMfr] = useState("Ubiquiti");
+  const [mfr, setMfr] = useState("Unifi");
   const [q, setQ] = useState("");
-  const [models, setModels] = useState<string[] | null>(null);
+  const [models, setModels] = useState<Array<{ id: string; label: string }> | null>(null);
   const [busy, setBusy] = useState("");
-  useEffect(() => { api.get<string[]>("/api/racks/library/manufacturers").then(m => { setMfrs(m); if (m.length && !m.includes("Ubiquiti")) setMfr(m[0]); }).catch(e => n.bad(e)); }, []);
+  useEffect(() => {
+    setMfrs([]); setModels(null); n.clear();
+    api.get<{ items: string[] }>(`/api/racks/library/manufacturers?source=${source}`).then(r => {
+      setMfrs(r.items);
+      const want = source === "drawio" ? "Unifi" : "Ubiquiti";
+      setMfr(r.items.find(m => m.toLowerCase() === want.toLowerCase()) ?? r.items[0] ?? "");
+    }).catch(e => { n.bad(e); setModels([]); });
+  }, [source]);
   useEffect(() => {
     if (!mfr) return;
     setModels(null); n.clear();
-    const t = setTimeout(() => { api.get<string[]>(`/api/racks/library/models?manufacturer=${encodeURIComponent(mfr)}&q=${encodeURIComponent(q)}`).then(setModels).catch(e => { n.bad(e); setModels([]); }); }, 250);
+    const t = setTimeout(() => { api.get<{ items: Array<{ id: string; label: string }> }>(`/api/racks/library/models?source=${source}&manufacturer=${encodeURIComponent(mfr)}&q=${encodeURIComponent(q)}`).then(r => setModels(r.items)).catch(e => { n.bad(e); setModels([]); }); }, 250);
     return () => clearTimeout(t);
-  }, [mfr, q]);
+  }, [mfr, q, source]);
   const choose = async (model: string) => {
     setBusy(model); n.clear();
-    try { onPick(await api.post<Imported>("/api/racks/library/import", { manufacturer: mfr, model })); } catch (e) { n.bad(e); }
+    try { onPick(await api.post<Imported>("/api/racks/library/import", { source, manufacturer: mfr, model })); } catch (e) { n.bad(e); }
     setBusy("");
   };
   return (
     <Modal title="Device library" eyebrow="Community pictures (NetBox)" onClose={onClose} wide>
       <div className="form">
-        <p className="sub">Searches the open NetBox device library on the internet. The picture you choose is saved on your server as your own copy. Check the library's terms if you share your dashboard publicly.</p>
+        <p className="sub">Searches a community picture library on the internet. The picture you choose is saved on your server as your own copy. Check the library's terms if you share your dashboard publicly.</p>
+        <Field label="Library"><select value={source} onChange={e => setSource(e.target.value as "drawio" | "netbox")}><option value="drawio">UniFi drawings (draw.io, community)</option><option value="netbox">NetBox device library (many brands)</option></select></Field>
         <div className="row2">
           <Field label="Manufacturer"><select value={mfr} onChange={e => setMfr(e.target.value)}>{(mfrs.length ? mfrs : [mfr]).map(m => <option key={m} value={m}>{m}</option>)}</select></Field>
           <Field label="Search"><input value={q} autoFocus onChange={e => setQ(e.target.value)} placeholder="USW Pro 24, UDM, Dream Machine…" /></Field>
@@ -158,7 +167,7 @@ function LibraryDialog({ onPick, onClose }: { onPick: (r: Imported) => void; onC
         <div className="libmodels" role="list">
           {models === null && <p className="sub">Searching…</p>}
           {models?.length === 0 && <p className="sub">No models with pictures found.</p>}
-          {models?.map(m => <button key={m} type="button" role="listitem" className="btn libmodel" disabled={!!busy} onClick={() => void choose(m)}>{busy === m ? "Saving…" : m}</button>)}
+          {models?.map(m => <button key={m.id} type="button" role="listitem" className="btn libmodel" disabled={!!busy} onClick={() => void choose(m.id)}>{busy === m.id ? "Saving…" : m.label}</button>)}
         </div>
         <div className="acts"><span /><span className="acts-right"><button type="button" className="btn" onClick={onClose}>Close</button></span></div>
       </div>

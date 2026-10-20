@@ -160,3 +160,39 @@ test("library: lists models, saves pictures as own copies, reads height and port
     assert.ok(file.icons[b.rear.icon.split("?")[0]], "the rear picture travels inside the backup");
   } finally { gh.close(); delete process.env.RACK_LIBRARY_API; delete process.env.RACK_LIBRARY_RAW; }
 });
+
+test("draw.io pictures are cleaned and saved", async () => {
+  const { cleanDrawio } = await import("../src/racklibrary.js");
+  const { svgIsSafe } = await import("../src/icons.js");
+  const raw = `<?xml version="1.0"?><!DOCTYPE svg PUBLIC "x" "y"><svg xmlns="http://www.w3.org/2000/svg" width="1906px" height="173px"><rect fill="light-dark(rgb(1, 2, 3), var(--a, #121212))" style="stroke: light-dark(#fff, #000);"/><switch><foreignObject><div>1</div></foreignObject><a xlink:href="https://x.example"><text>no</text></a></switch></svg>`;
+  const out = cleanDrawio(raw);
+  assert.ok(svgIsSafe(out));
+  assert.ok(!out.includes("light-dark") && !out.includes("foreignObject") && !out.includes("DOCTYPE"));
+  assert.ok(out.includes('fill="rgb(1, 2, 3)"') && out.includes("stroke: #fff;"));
+});
+
+test("draw.io library: lists drawings, saves the cleaned picture, reads the height from its shape", async () => {
+  const svg = (h: number) => `<svg xmlns="http://www.w3.org/2000/svg" width="1906px" height="${h}px" viewBox="0 0 1906 ${h}"><rect width="10" height="10" fill="light-dark(#fff, #000)"/><switch><foreignObject><div>x</div></foreignObject></switch></svg>`;
+  const gh: Server = createServer((req, res) => {
+    const u = decodeURI(req.url ?? "");
+    if (u === "/api/git/trees/main?recursive=1") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify({ tree: [
+      { path: "SVG Files/Unifi/Switches/Professional/USW-Pro-24-PoE.svg", type: "blob" }, { path: "SVG Files/Unifi/Gateways/UDM-Pro-Max.svg", type: "blob" }, { path: "SVG Files/Unifi/readme.md", type: "blob" }, { path: "README.md", type: "blob" }] })); }
+    if (u === "/raw/SVG Files/Unifi/Switches/Professional/USW-Pro-24-PoE.svg") { res.writeHead(200); return res.end(svg(173)); }
+    if (u === "/raw/SVG Files/Unifi/Gateways/UDM-Pro-Max.svg") { res.writeHead(200); return res.end(svg(345)); }
+    res.writeHead(404); res.end();
+  });
+  await new Promise<void>(r => gh.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${(gh.address() as AddressInfo).port}`;
+  process.env.RACK_DRAWIO_API = `${base}/api`; process.env.RACK_DRAWIO_RAW = `${base}/raw`;
+  try {
+    assert.deepEqual((await call("GET", "/api/racks/library/manufacturers?source=drawio")).json().items, ["Unifi"]);
+    const found = (await call("GET", "/api/racks/library/models?source=drawio&manufacturer=Unifi&q=pro 24")).json().items;
+    assert.deepEqual(found.map((m: any) => m.id), ["Switches/Professional/USW-Pro-24-PoE"]);
+    const one = await call("POST", "/api/racks/library/import", { source: "drawio", manufacturer: "Unifi", model: "Switches/Professional/USW-Pro-24-PoE" });
+    assert.equal(one.statusCode, 200, one.body);
+    assert.equal(one.json().units, 1); assert.equal(one.json().name, "USW Pro 24 PoE"); assert.ok(one.json().front.icon.startsWith("used/")); assert.equal(one.json().rear, null);
+    const two = (await call("POST", "/api/racks/library/import", { source: "drawio", manufacturer: "Unifi", model: "Gateways/UDM-Pro-Max" })).json();
+    assert.equal(two.units, 2);
+    assert.equal((await call("POST", "/api/racks/library/import", { source: "drawio", manufacturer: "Unifi", model: "../../etc/passwd" })).statusCode, 400);
+  } finally { gh.close(); delete process.env.RACK_DRAWIO_API; delete process.env.RACK_DRAWIO_RAW; }
+});

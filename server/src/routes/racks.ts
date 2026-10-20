@@ -19,16 +19,17 @@ export function rackRoutes(app: FastifyInstance, d: Deps): void {
 
   // The NetBox device library: look up a model, save its pictures as your own copies, and learn its height and ports.
   app.get("/api/racks/library/manufacturers", admin, async (request, reply) => {
-    try { return { items: await library.manufacturers() }; } catch (error) { return bad(reply, error); }
+    const src = String((request.query as { source?: string }).source ?? "netbox");
+    try { return { items: src === "drawio" ? await library.drawioManufacturers() : await library.manufacturers() }; } catch (error) { return bad(reply, error); }
   });
   app.get("/api/racks/library/models", admin, async (request, reply) => {
-    const q = request.query as { manufacturer?: string; q?: string };
-    try { return { items: await library.models(String(q.manufacturer ?? ""), String(q.q ?? "").slice(0, 80)) }; } catch (error) { return bad(reply, error); }
+    const q = request.query as { manufacturer?: string; q?: string; source?: string };
+    try { return { items: await (q.source === "drawio" ? library.drawioModels : library.models).call(library, String(q.manufacturer ?? ""), String(q.q ?? "").slice(0, 80)) }; } catch (error) { return bad(reply, error); }
   });
   app.post("/api/racks/library/import", admin, async (request, reply) => {
-    const b = (request.body ?? {}) as { manufacturer?: string; model?: string };
+    const b = (request.body ?? {}) as { manufacturer?: string; model?: string; source?: string };
     try {
-      const got = await library.fetch(String(b.manufacturer ?? ""), String(b.model ?? ""));
+      const got = await (b.source === "drawio" ? library.drawioFetch : library.fetch).call(library, String(b.manufacturer ?? ""), String(b.model ?? ""));
       const save = (buf: Buffer | null) => { if (!buf) return null; try { return icons.freezeUpload(buf); } catch { return null; } };
       const front = save(got.front), rear = save(got.rear);
       if (!front && !rear) throw new ValidationError("None of that model's pictures could be used");
