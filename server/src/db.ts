@@ -133,6 +133,22 @@ const MIGRATIONS: string[] = [
     created_at INTEGER NOT NULL, last_used INTEGER, views INTEGER NOT NULL DEFAULT 0
   );
   `,
+  /* 10: monitor groups, more check types, maintenance windows */ `
+  ALTER TABLE monitors ADD COLUMN group_name TEXT NOT NULL DEFAULT '';
+  ALTER TABLE monitors ADD COLUMN description TEXT NOT NULL DEFAULT '';
+  ALTER TABLE monitors ADD COLUMN json_path TEXT NOT NULL DEFAULT '';
+  ALTER TABLE monitors ADD COLUMN body TEXT NOT NULL DEFAULT '';
+  ALTER TABLE monitors ADD COLUMN auth_user TEXT NOT NULL DEFAULT '';
+  ALTER TABLE monitors ADD COLUMN secret TEXT NOT NULL DEFAULT '';
+  ALTER TABLE monitors ADD COLUMN max_redirects INTEGER NOT NULL DEFAULT 5;
+  ALTER TABLE monitors ADD COLUMN upside_down INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE monitors ADD COLUMN retry_s INTEGER NOT NULL DEFAULT 20;
+  ALTER TABLE status_pages ADD COLUMN tone TEXT NOT NULL DEFAULT 'info';
+  CREATE TABLE maintenance_windows (
+    id TEXT PRIMARY KEY, title TEXT NOT NULL, monitors TEXT NOT NULL DEFAULT '[]', kind TEXT NOT NULL, starts_at INTEGER, ends_at INTEGER,
+    days TEXT NOT NULL DEFAULT '', start_time TEXT NOT NULL DEFAULT '00:00', duration_min INTEGER NOT NULL DEFAULT 60, enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 /** Exposed for tests that need to build an older database. */

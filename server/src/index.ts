@@ -58,7 +58,7 @@ export async function buildApp(config: Config) {
   const access = new Access(db, shares, tokens);
   const version = versionInfo();
   const destinations = new Destinations(db, box);
-  const monitors = new Monitors(db), statusPages = new StatusPages(db, box, monitors);
+  const monitors = new Monitors(db, box), statusPages = new StatusPages(db, box, monitors);
   const deps: Deps = { monitors, statusPages, config, db, box, store, hub, poller, go2rtc, shares, access, tokens, destinations, icons, maintenance: undefined as unknown as Maintenance, restart: () => {}, backups: undefined as unknown as AutoBackup };
   deps.backups = new AutoBackup(() => deps, config.dataDir);
   deps.maintenance = new Maintenance(() => deps);

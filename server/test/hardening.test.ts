@@ -424,5 +424,5 @@ test("update check: off by default and silent; when on it asks GitHub once and s
 test("restore-safe: old data folders upgrade to the current layout with their sessions and metrics intact", async () => {
   assert.ok(existsSync(join(dir, "homebase.db")));
   assert.ok(readdirSync(dir).length > 0);
-  assert.equal((ctx.db.prepare("SELECT v FROM meta WHERE k = 'schema_version'").get() as any).v, "9");
+  assert.equal((ctx.db.prepare("SELECT v FROM meta WHERE k = 'schema_version'").get() as any).v, "10");
 });

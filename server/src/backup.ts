@@ -29,8 +29,8 @@ export interface BackupFile {
   /** The saved icon files the rest of the file refers to, by name ("used/..."), as base64. */
   icons?: Record<string, string>;
   /** Uptime monitors and public status pages (no history, and status page links are made new on import). */
-  monitors?: MonitorConfig[];
-  statusPages?: Array<{ id: string; title: string; message: string; monitors: string[]; enabled: boolean }>;
+  monitors?: Array<MonitorConfig & { secretsOmitted?: boolean }>;
+  statusPages?: Array<{ id: string; title: string; message: string; tone?: string; monitors: string[]; enabled: boolean }>;
 }
 type AccountRow = Record<string, string | number | null>;
 interface SecretsPlain { integrations: Record<string, string>; cameras: Record<string, { main: string; sub: string }>; accounts?: AccountRow[] }
@@ -82,7 +82,7 @@ export function exportBackup(deps: Deps, passphrase: string, opts: { accounts?: 
     if (iconBytes + buf.length > 6_000_000) break;
     iconBytes += buf.length; icons[name] = buf.toString("base64");
   }
-  const { monitors, statusPages } = exportMonitors(db);
+  const { monitors, statusPages } = exportMonitors(deps.monitors, db);
   return {
     icons, monitors, statusPages,
     accountsIncluded: Boolean(opts.accounts),
@@ -109,13 +109,14 @@ export function parseBackup(raw: unknown): BackupFile {
     if (!CAM_ID.test(String(c?.id))) throw new ValidationError("A camera in the file has an invalid id");
     return { id: String(c.id), name: String(c.name ?? "").trim().slice(0, 60) || "Camera", main: String(c.main ?? "").slice(0, 600), sub: String(c.sub ?? "").slice(0, 600), icon: cleanIcon(c.icon), iconRef: cleanIcon(c.icon) ? cleanIconRef(c.iconRef) : "" };
   });
-  const monitors = (Array.isArray(f.monitors) ? f.monitors : []).slice(0, 100).map((m: any, i: number): MonitorConfig => {
+  const monitors = (Array.isArray(f.monitors) ? f.monitors : []).slice(0, 100).map((m: any, i: number): MonitorConfig & { secretsOmitted?: boolean } => {
     if (!ID.test(String(m?.id))) throw new ValidationError("A monitor in the file has an invalid id");
-    return { ...cleanMonitor(m), id: String(m.id), position: i };
+    const { authPass: _p, ...c } = cleanMonitor({ ...m, authPass: "" });
+    return { ...c, hasAuthPass: false, id: String(m.id), position: i, secretsOmitted: Boolean(m.secretsOmitted) };
   });
   const monIds = new Set(monitors.map(m => m.id));
   const statusPages = (Array.isArray(f.statusPages) ? f.statusPages : []).slice(0, 50).map((p: any) => ({
-    id: String(p?.id ?? "").slice(0, 64), title: String(p?.title ?? "Status").trim().slice(0, 80) || "Status", message: String(p?.message ?? "").slice(0, 400),
+    id: String(p?.id ?? "").slice(0, 64), title: String(p?.title ?? "Status").trim().slice(0, 80) || "Status", message: String(p?.message ?? "").slice(0, 400), tone: ["info", "warn", "bad"].includes(p?.tone) ? p.tone : "info",
     monitors: (Array.isArray(p?.monitors) ? p.monitors.map(String) : []).filter((x: string) => monIds.has(x)), enabled: p?.enabled !== false
   })).filter(p => p.monitors.length);
   const s = f.secrets as SecretsBlob | null | undefined;
@@ -223,13 +224,13 @@ export async function applyBackup(deps: Deps, file: BackupFile, opts: ImportOpti
     const haveMon = new Set(deps.monitors.list().map(m => m.id));
     tx(db, () => {
       if (replace) { deps.monitors.clearAll(); db.exec("DELETE FROM status_pages;"); haveMon.clear(); }
-      for (const m of file.monitors ?? []) { if (haveMon.has(m.id)) continue; deps.monitors.insert(m); monitorsAdded++; }
+      for (const m of file.monitors ?? []) { if (haveMon.has(m.id)) continue; const { secretsOmitted, ...c } = m; deps.monitors.insert({ ...c, authPass: "" }); monitorsAdded++; if (secretsOmitted) needsSecrets.push(`${m.name} (monitor password, headers or push address)`); }
     });
     const have = new Set(deps.monitors.list().map(m => m.id));
     for (const p of file.statusPages ?? []) {
       const ids = p.monitors.filter(x => have.has(x));
       if (!ids.length) continue;
-      try { deps.statusPages.create({ title: p.title, message: p.message, monitors: ids, enabled: p.enabled }); } catch { /* a page that cannot be made is left out */ }
+      try { deps.statusPages.create({ title: p.title, message: p.message, tone: p.tone, monitors: ids, enabled: p.enabled }); } catch { /* a page that cannot be made is left out */ }
     }
     for (const m of deps.monitors.list()) deps.monitors.update(m.id, {}); // restarts each one's schedule
   }

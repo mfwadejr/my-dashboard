@@ -2,6 +2,7 @@ import { useState } from "react";
 import { uid } from "../api";
 import type { CameraInfo, IntegrationInfo, Tile } from "../types";
 import { useMonitors } from "../hooks";
+import { groupRows } from "../components/MonitorBits";
 import { REFRESH_CHOICES, refreshOf } from "../widgets/Camera";
 import type { LauncherItem } from "../widgets/Launcher";
 import { WIDGET_BY_TYPE } from "../widgets";
@@ -147,11 +148,19 @@ function MonitorPick({ chosen, onChange }: { chosen: string[]; onChange: (ids: s
             <button type="button" className="btn sm" disabled={live.length === items.length} onClick={() => onChange(items.map(m => m.id))}>Select all</button>
             <button type="button" className="btn sm" disabled={live.length === 0} onClick={() => onChange([])}>Select none</button>
           </span>
-          <div className="list sec-pick">{items.map(m => (
-            <div key={m.id} className="li"><label className="chk"><input type="checkbox" checked={live.includes(m.id)} onChange={e => onChange(e.target.checked ? [...live, m.id] : live.filter(x => x !== m.id))} /> {m.name}</label></div>
-          ))}</div>
+          <div className="list sec-pick">{groupRows(items).map(g => {
+            const ids = g.rows.map(m => m.id), all = ids.every(id => live.includes(id));
+            return (
+              <div key={g.name || "_"}>
+                {g.name && <div className="li"><label className="chk"><input type="checkbox" checked={all} onChange={e => onChange(e.target.checked ? [...new Set([...live, ...ids])] : live.filter(x => !ids.includes(x)))} /> <b>{g.name}</b></label></div>}
+                {g.rows.map(m => (
+                  <div key={m.id} className="li"><label className="chk"><input type="checkbox" checked={live.includes(m.id)} onChange={e => onChange(e.target.checked ? [...live, m.id] : live.filter(x => x !== m.id))} /> {m.name}</label></div>
+                ))}
+              </div>
+            );
+          })}</div>
         </>
-      ) : <span className="sub">No monitors yet. Add them in Settings → Monitors.</span>}
+      ) : <span className="sub">No monitors yet. Add them on the Monitoring tab.</span>}
       <small>Leave none ticked to show every monitor.</small></div>
   );
 }

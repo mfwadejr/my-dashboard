@@ -126,7 +126,8 @@ test("history, daily uptime and the pause switch", async () => {
   for (let i = 0; i < 3; i++) await call("POST", `/api/monitors/${id}/check`);
   const h = (await call("GET", `/api/monitors/${id}/history?hours=24`, undefined, viewer)).json();
   assert.ok(h.points.length >= 1 && h.points.every((p: any) => typeof p.t === "number"));
-  assert.equal(h.days.length, 45); assert.equal(h.days[44].up, 3); assert.equal(h.days[44].down, 0);
+  assert.equal(h.days.length, 90); assert.equal(h.days[89].up, 3); assert.equal(h.days[89].down, 0);
+  assert.equal(h.uptimes.d1, 100); assert.ok(Array.isArray(h.events));
   assert.equal(h.recent.length, 3);
   assert.equal((await call("PUT", `/api/monitors/${id}`, { enabled: false })).json().enabled, false);
   assert.equal((await view(id)).state, "paused");
@@ -186,4 +187,111 @@ test("a JSON backup carries monitors and status pages, and a replace import rest
   const pages = (await call("GET", "/api/status-pages")).json().items as any[];
   assert.equal(pages.length, 1); assert.equal(pages[0].title, "Home lab");
   assert.equal((await raw("GET", `/api/status/${pages[0].token}`)).statusCode, 200, "the restored page has a working link");
+});
+
+test("groups, descriptions and bulk pause/resume", async () => {
+  const mk = async (name: string, group: string) => (await call("POST", "/api/monitors", { name, group, description: "Part of " + group, kind: "tcp", target: "127.0.0.1", port: tcpPort, retries: 0 })).json();
+  const a = await mk("Sonarr", "Arrs"), b = await mk("Radarr", "Arrs");
+  assert.equal(a.group, "Arrs"); assert.equal(a.description, "Part of Arrs");
+  const v = await view(a.id, viewer);
+  assert.equal(v.group, "Arrs"); assert.equal(v.description, "Part of Arrs");
+  assert.equal((await call("POST", "/api/monitors/bulk", { ids: [a.id, b.id], action: "pause" })).json().changed, 2);
+  assert.equal((await view(b.id)).state, "paused");
+  await call("POST", "/api/monitors/bulk", { ids: [a.id, b.id], action: "resume" });
+  assert.notEqual((await view(b.id)).state, "paused");
+  assert.equal((await call("POST", "/api/monitors/bulk", { ids: [], action: "pause" })).statusCode, 400);
+  assert.equal((await call("POST", "/api/monitors/bulk", { ids: [a.id], action: "pause" }, viewer)).statusCode, 403);
+  const page = (await call("POST", "/api/status-pages", { title: "Arrs", tone: "warn", message: "Planned work", monitors: [a.id, b.id] })).json();
+  const pub = (await raw("GET", `/api/status/${page.token}`)).json();
+  assert.equal(pub.tone, "warn"); assert.equal(pub.monitors[0].group, "Arrs");
+});
+
+test("JSON path, custom method, headers and basic auth, and upside-down mode", async () => {
+  const seen: any[] = [];
+  const api = httpServer((req, res) => {
+    let body = ""; req.on("data", c => body += c); req.on("end", () => {
+      seen.push({ method: req.method, auth: req.headers.authorization, x: req.headers["x-test"], body });
+      res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ data: { status: "ok", items: [{ n: 3 }] } }));
+    });
+  });
+  const url = `http://127.0.0.1:${await listen(api)}`;
+  try {
+    const check = async (b: object) => (await call("POST", "/api/monitors/test", { retries: 0, target: url, ...b })).json();
+    assert.equal((await check({ kind: "json", jsonPath: "data.status", keyword: "ok" })).up, true);
+    assert.equal((await check({ kind: "json", jsonPath: "data.items.0.n", keyword: "3" })).up, true);
+    const wrong = await check({ kind: "json", jsonPath: "data.status", keyword: "bad" });
+    assert.equal(wrong.up, false); assert.match(wrong.message, /data\.status/);
+    assert.equal((await check({ kind: "json", jsonPath: "data.nothing", keyword: "x" })).up, false);
+    await check({ kind: "http", method: "POST", body: '{"a":1}', headers: "X-Test: hello", authUser: "me", authPass: "secret" });
+    const last = seen[seen.length - 1];
+    assert.equal(last.method, "POST"); assert.equal(last.body, '{"a":1}'); assert.equal(last.x, "hello");
+    assert.equal(last.auth, "Basic " + Buffer.from("me:secret").toString("base64"));
+    assert.equal((await check({ kind: "http", upsideDown: true })).up, false, "upside down: reachable counts as down");
+    // Secrets are sealed in the database and never sent back.
+    const m = (await call("POST", "/api/monitors", { name: "Auth", kind: "http", target: url, headers: "X-Test: hello", authUser: "me", authPass: "secret" })).json();
+    assert.equal(m.hasAuthPass, true); assert.ok(!JSON.stringify(m).includes("secret"));
+    const row = ctx.db.prepare("SELECT secret FROM monitors WHERE id = ?").get(m.id) as any;
+    assert.ok(row.secret && !row.secret.includes("secret"));
+    await call("PUT", `/api/monitors/${m.id}`, { name: "Auth 2" });
+    await call("POST", `/api/monitors/${m.id}/check`);
+    assert.equal(seen[seen.length - 1].auth, "Basic " + Buffer.from("me:secret").toString("base64"), "a blank password keeps the saved one");
+    const exp = (await call("POST", "/api/backup/export", {})).json();
+    assert.ok(!JSON.stringify(exp.monitors).includes('"secret"') && !JSON.stringify(exp.monitors).includes("X-Test") && exp.monitors.find((x: any) => x.id === m.id).secretsOmitted);
+  } finally { api.close(); }
+});
+
+test("push monitors: a heartbeat marks them up, a missed one marks them down, a wrong address is refused", async () => {
+  const m = (await call("POST", "/api/monitors", { name: "Backup job", kind: "push", intervalSeconds: 60, retries: 0 })).json();
+  assert.match(m.target, /^[A-Za-z0-9_-]{16,}$/);
+  assert.equal((await raw("GET", `/api/push/${m.target}?status=up&msg=done&ping=42`)).statusCode, 200);
+  let v = await view(m.id);
+  assert.equal(v.state, "up"); assert.equal(v.lastMs, 42);
+  await raw("GET", `/api/push/${m.target}?status=down&msg=failed`);
+  v = await view(m.id); assert.equal(v.state, "down");
+  assert.equal((await raw("GET", "/api/push/nope-nope-nope-nope")).statusCode, 404);
+  // No heartbeat for longer than the interval counts as down.
+  await raw("GET", `/api/push/${m.target}`);
+  (ctx.deps.monitors as any).beats.set(m.id, Date.now() - 3600_000);
+  const missed = await ctx.deps.monitors.checkNow(m.id, true);
+  assert.equal(missed?.state, "down"); assert.match(missed!.message, /No heartbeat/i);
+});
+
+test("maintenance windows: checks pause inside a window, and the rules are validated", async () => {
+  const m = (await call("POST", "/api/monitors", { name: "Planned", kind: "http", target: webUrl, retries: 0 })).json();
+  assert.equal((await call("POST", "/api/maintenance-windows", { title: "", kind: "once" })).statusCode, 400);
+  assert.equal((await call("POST", "/api/maintenance-windows", { title: "x", kind: "once", startsAt: 5, endsAt: 1 })).statusCode, 400);
+  assert.equal((await call("POST", "/api/maintenance-windows", { title: "x", kind: "weekly", startTime: "02:00", days: [] })).statusCode, 400);
+  assert.equal((await call("POST", "/api/maintenance-windows", { title: "x", kind: "daily", startTime: "25:00" })).statusCode, 400);
+  assert.equal((await call("POST", "/api/maintenance-windows", { title: "Patching", kind: "once", monitors: [m.id], startsAt: Date.now() - 1000, endsAt: Date.now() + 3600_000 }, viewer)).statusCode, 403);
+  const w = (await call("POST", "/api/maintenance-windows", { title: "Patching", kind: "once", monitors: [m.id], startsAt: Date.now() - 1000, endsAt: Date.now() + 3600_000 })).json();
+  mode = { status: 500, body: "", delay: 0 };
+  const r = (await call("POST", `/api/monitors/${m.id}/check`)).json();
+  assert.equal(r.state, "maintenance");
+  assert.equal((await view(m.id)).state, "maintenance");
+  mode = { status: 200, body: "<h1>Hello world</h1>", delay: 0 };
+  await call("PUT", `/api/maintenance-windows/${w.id}`, { enabled: false });
+  assert.equal((await call("POST", `/api/monitors/${m.id}/check`)).json().state, "up");
+  // Recurring windows, including one that runs past midnight.
+  const win = ctx.deps.monitors.windows;
+  const at = (iso: string) => new Date(iso).getTime();
+  const nightly = win.create({ title: "Nightly", kind: "daily", startTime: "23:30", durationMin: 120, monitors: [m.id] });
+  assert.ok(win.active(m.id, at("2026-03-04T23:45:00Z"), "UTC", [nightly]));
+  assert.ok(win.active(m.id, at("2026-03-05T01:00:00Z"), "UTC", [nightly]), "past midnight");
+  assert.ok(!win.active(m.id, at("2026-03-05T02:00:00Z"), "UTC", [nightly]));
+  const weekly = win.create({ title: "Sundays", kind: "weekly", startTime: "03:00", durationMin: 60, days: [0] });
+  assert.ok(win.active("any", at("2026-03-01T03:30:00Z"), "UTC", [weekly]), "2026-03-01 is a Sunday");
+  assert.ok(!win.active("any", at("2026-03-02T03:30:00Z"), "UTC", [weekly]));
+  assert.ok(!win.active("any", at("2026-03-01T03:30:00Z"), "America/New_York", [weekly]), "the time zone is respected");
+  assert.equal((await call("DELETE", `/api/maintenance-windows/${nightly.id}`)).statusCode, 200);
+});
+
+test("ping and certificate monitors give plain answers", async () => {
+  const bad = (await call("POST", "/api/monitors/test", { kind: "ping", target: "-oProxy=x" }));
+  assert.equal(bad.statusCode, 400, "a host name cannot start with a dash");
+  const ping = (await call("POST", "/api/monitors/test", { kind: "ping", target: "127.0.0.1", timeoutSeconds: 2 })).json();
+  assert.equal(typeof ping.up, "boolean"); assert.ok(ping.message.length > 0);
+  const cert = (await call("POST", "/api/monitors/test", { kind: "cert", target: "127.0.0.1", port: Number(new URL(secureUrl).port), insecureTls: true, certWarnDays: 1 })).json();
+  assert.equal(cert.up, true, "about two days remain and the warning is at one");
+  const soon = (await call("POST", "/api/monitors/test", { kind: "cert", target: "127.0.0.1", port: Number(new URL(secureUrl).port), insecureTls: true, certWarnDays: 30 })).json();
+  assert.equal(soon.up, false); assert.match(soon.message, /ends in/);
 });
