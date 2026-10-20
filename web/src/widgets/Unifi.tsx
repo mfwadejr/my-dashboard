@@ -30,7 +30,7 @@ function Wans({ d, id }: { d: any; id?: string }) {
             <div className="row sp">
               <b className="trunc">{w.name}</b>
               <span className="row">
-                {failover && w.active !== null && w.active !== undefined && <Pill tone={w.active ? "ok" : "mute"}>{w.active ? "active" : "standby"}</Pill>}
+                {failover && w.active !== null && w.active !== undefined && <Pill tone={w.active ? "ok" : "mute"}>{w.active ? (w.balanced ? "balanced" : "active") : "standby"}</Pill>}
                 {w.up === null ? null : <Pill tone={w.up ? "ok" : "bad"}>{w.up ? "up" : "down"}</Pill>}
               </span>
             </div>
@@ -73,7 +73,7 @@ function Custom({ d }: { d: any }) {
   );
 }
 
-const SECTIONS: Record<string, (d: any, id?: string) => ReactNode> = {
+const SECTIONS: Record<string, (d: any, id?: string, wansOn?: boolean) => ReactNode> = {
   summary: d => (
     <div className="stats3">
       <div><b>{d.clients ? d.clients.total : "–"}</b><span>clients</span></div>
@@ -81,12 +81,12 @@ const SECTIONS: Record<string, (d: any, id?: string) => ReactNode> = {
       <div><b>{d.clients?.wireless ?? "–"}</b><span>wireless</span></div>
     </div>
   ),
-  gateway: d => d.gateway && (
+  gateway: (d, _id, wansOn) => d.gateway && (
     <>
       <div className="row sp"><span className="sub">{d.gateway.name}</span><span className="sub">{[d.gateway.tempC !== null && d.gateway.tempC !== undefined && `${Math.round(d.gateway.tempC)}°C`, `up ${uptime(d.gateway.uptimeSec)}`].filter(Boolean).join(" · ")}</span></div>
       <div className="row sp"><span className="sub">CPU {pct(d.gateway.cpuPct)}</span><div className="f1"><Bar value={(d.gateway.cpuPct ?? 0) / 100} tone={d.gateway.cpuPct > 85 ? "bad" : undefined} /></div></div>
       <div className="row sp"><span className="sub">RAM {pct(d.gateway.memPct)}</span><div className="f1"><Bar value={(d.gateway.memPct ?? 0) / 100} tone={d.gateway.memPct > 90 ? "warn" : undefined} /></div></div>
-      <div className="row sp"><span className="sub">↓ {rate(d.gateway.rxBps)}</span><span className="sub">↑ {rate(d.gateway.txBps)}</span></div>
+      {!wansOn && <div className="row sp"><span className="sub">↓ {rate(d.gateway.rxBps)}</span><span className="sub">↑ {rate(d.gateway.txBps)}</span></div>}
     </>
   ),
   wans: (d, id) => d.wans && <Wans d={d} id={id} />,
@@ -106,10 +106,11 @@ const SECTIONS: Record<string, (d: any, id?: string) => ReactNode> = {
 export function UnifiNetwork(props: WidgetProps) {
   const sections = resolveSections("unifi-network", props.tile.config.sections).filter(s => s.on);
   const id = props.tile.config.integrationId as string | undefined;
+  const wansOn = sections.some(s => s.id === "wans");
   return (
     <Shell props={props} label="UniFi Network">{d => (
       <>
-        {sections.map(s => { const node = SECTIONS[s.id]?.(d, id); return node ? <div key={s.id} className="usec">{node}</div> : null; })}
+        {sections.map(s => { const node = SECTIONS[s.id]?.(d, id, wansOn); return node ? <div key={s.id} className="usec">{node}</div> : null; })}
         {sections.length === 0 && <Empty>Turn on sections in this tile's settings.</Empty>}
       </>
     )}</Shell>

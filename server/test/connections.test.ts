@@ -303,3 +303,12 @@ test("UNAS storage reader: shallowest match, derives missing numbers, rejects ju
   assert.equal(findStorage({ drives: [{ size: 5 }] }), null, "a lone drive size with no used figure is not a storage reading");
   assert.equal(findStorage({ name: "x" }), null);
 });
+
+test("UniFi Network: load-balanced WAN links all count as active, failover keeps one", async () => {
+  const { nameWans } = await import("../src/integrations/unifi.js");
+  const links = [{ name: "eth8", ifname: "", group: "WAN", up: true, active: true }, { name: "eth0", ifname: "", group: "WAN2", up: true, active: false }, { name: "eth1", ifname: "", group: "WAN3", up: false, active: false }] as any[];
+  const balanced = nameWans(links, [1, 2, 3].map(n => ({ purpose: "wan", name: `ISP ${n}`, wan_networkgroup: n === 1 ? "WAN" : `WAN${n}`, wan_load_balance_type: "weighted" })));
+  assert.deepEqual(balanced.map(w => [w.name, w.active, w.balanced]), [["ISP 1", true, true], ["ISP 2", true, true], ["ISP 3", false, true]]);
+  const failover = nameWans(links, [1, 2, 3].map(n => ({ purpose: "wan", name: `ISP ${n}`, wan_networkgroup: n === 1 ? "WAN" : `WAN${n}`, wan_load_balance_type: "failover-only" })));
+  assert.deepEqual(failover.map(w => [w.active, w.balanced]), [[true, undefined], [false, undefined], [false, undefined]]);
+});
