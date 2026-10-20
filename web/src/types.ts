@@ -4,8 +4,8 @@ export interface Tab { id: string; name: string; emoji: string; icon?: string; i
 export interface Dashboard { revision: number; tabs: Tab[] }
 
 export interface Snapshot { id: string; ok: boolean; ts: number | null; checkedAt: number; error: string | null; data: any }
-export interface IntegrationInfo { id: string; type: string; name: string; enabled: boolean; url?: string; intervalSeconds?: number; hasKey?: boolean; insecureTls?: boolean; icon?: string; iconRef?: string; openUrl?: string; openMode?: "tab" | "inapp" }
-export interface IntegrationType { id: string; name: string; description: string; urlHint: string; keyLabel: string }
+export interface IntegrationInfo { id: string; type: string; name: string; enabled: boolean; url?: string; intervalSeconds?: number; hasKey?: boolean; insecureTls?: boolean; icon?: string; iconRef?: string; openUrl?: string; openMode?: "tab" | "inapp"; fields?: Array<{ path: string; label: string; unit: string }> }
+export interface IntegrationType { id: string; name: string; description: string; urlHint: string; keyLabel: string; hasCatalog?: boolean }
 export interface CameraInfo { id: string; name: string; icon?: string; iconRef?: string }
 export interface IconHit { ref: string; label: string; source: string; sourceName: string; preview: string }
 export interface IconChoice { icon: string; iconRef: string }

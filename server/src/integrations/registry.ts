@@ -14,5 +14,5 @@ export const INTEGRATION_TYPES: Record<string, IntegrationType> = Object.fromEnt
 );
 
 export function publicTypeInfo() {
-  return Object.values(INTEGRATION_TYPES).map(({ id, name, description, urlHint, keyLabel }) => ({ id, name, description, urlHint, keyLabel }));
+  return Object.values(INTEGRATION_TYPES).map(({ id, name, description, urlHint, keyLabel, catalog }) => ({ id, name, description, urlHint, keyLabel, hasCatalog: Boolean(catalog) }));
 }

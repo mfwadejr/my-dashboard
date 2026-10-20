@@ -88,6 +88,45 @@ test("UniFi Network: clients, devices, gateway stats", async () => {
   assert.equal(series[0][1], 3);
 });
 
+test("UniFi Network: WAN failover and health, field catalog, picked fields, live WAN rates", async () => {
+  const id = await create({ type: "unifi-network", name: "Net2", url: unifi.url, apiKey: KEY });
+  const d = (await data(id)).data;
+  assert.deepEqual(d.wans.map((w: any) => [w.name, w.active, w.latencyMs, w.availabilityPct]), [["Fiber", true, 9, 99.9], ["Backup LTE", false, 48, 91.25]]);
+  assert.equal(d.publicIp, "203.0.113.5");
+  assert.deepEqual(d.custom, []);
+
+  // The catalog lists what the console answered, never anything secret-looking.
+  const cat = (await call("POST", "/api/integrations/catalog", { id })).json();
+  const paths: string[] = cat.fields.map((f: any) => f.path);
+  assert.ok(paths.some(p => /^devices\/[^/]+\/wan1\/rx_bytes-r$/.test(p)), "per-WAN rate is pickable");
+  assert.ok(paths.includes("health/wan/wan_ip"));
+  const dump = JSON.stringify(cat);
+  for (const secret of ["SECRETKEY1", "SECRETPASS", "SECRETSSH", "SECRETID", "SECRETCLI", "SECRETPSK"]) assert.ok(!dump.includes(secret), secret);
+  assert.ok(!paths.some(p => /authkey|passphrase|password|psk/i.test(p)), "secret-looking keys are not offered");
+  assert.equal((await call("POST", "/api/integrations/catalog", { type: "prowlarr", url: prowlarr.url, apiKey: KEY })).statusCode, 400, "only apps with a catalog");
+
+  // Save a selection, including one made-up path and a secret-looking path that must be dropped.
+  const rx = paths.find(p => /\/wan1\/rx_bytes-r$/.test(p))!;
+  const put = await call("PUT", `/api/integrations/${id}`, { type: "unifi-network", name: "Net2", url: unifi.url, apiKey: "", intervalSeconds: 15, fields: [
+    { path: rx, label: "Fiber down", unit: "bytesps" }, { path: "health/wan/wan_ip", label: "", unit: "text" }, { path: "devices/aa/x_authkey", label: "bad", unit: "text" }, { path: "nope/x", label: "bad", unit: "text" }] });
+  assert.equal(put.statusCode, 200);
+  const saved = (await call("GET", "/api/integrations")).json().find((i: any) => i.id === id);
+  assert.deepEqual(saved.fields.map((f: any) => f.path), [rx, "health/wan/wan_ip"]);
+  const d2 = (await data(id)).data;
+  assert.deepEqual(d2.custom.map((c: any) => [c.label, c.unit, c.value]), [["Fiber down", "bytesps", 1_000_000], ["Wan ip", "text", "203.0.113.5"]]);
+
+  // Live sampler gives the per-WAN rates in bits per second.
+  await call("GET", `/api/integrations/${id}/live?since=0`);
+  await new Promise(r => setTimeout(r, 400));
+  const live = (await call("GET", `/api/integrations/${id}/live?since=0`)).json();
+  assert.equal(live.samples.at(-1).v.wan1_rx_bps, 8_000_000);
+  assert.equal(live.samples.at(-1).v.wan2_tx_bps, 0);
+
+  // Catalog is admin-only.
+  const anon = await ctx.app.inject({ method: "POST", url: "/api/integrations/catalog", payload: { id }, headers: { "x-homebase": "1" } });
+  assert.equal(anon.statusCode, 401);
+});
+
 test("UniFi Protect: cameras connected and offline", async () => {
   const id = await create({ type: "unifi-protect", name: "Protect", url: unifi.url, apiKey: KEY });
   const d = (await data(id)).data;
@@ -236,7 +275,7 @@ test("Live samples: sampling starts on request, returns rates, only for types th
     assert.equal(typeof next.samples.at(-1).v.up, "number", "after two readings there is a rate");
     const none = (await call("GET", `/api/integrations/${id}/live?since=${next.samples.at(-1).t}`)).json();
     assert.ok(none.samples.length <= 1, "since returns only newer samples");
-    const nid = await create({ type: "unifi-network", name: "No live", url: unifi.url, apiKey: KEY });
+    const nid = await create({ type: "unifi-protect", name: "No live", url: unifi.url, apiKey: KEY });
     assert.equal((await call("GET", `/api/integrations/${nid}/live`)).statusCode, 404);
   } finally { await z.close(); }
 });

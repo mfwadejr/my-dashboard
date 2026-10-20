@@ -70,7 +70,15 @@ export function mockUnifi(tls?: { key: string; cert: string }): Promise<Mock> {
     if (p === "/proxy/network/api/s/default/stat/device/aa%3Abb%3Acc%3A00%3A00%3A01" || p === "/proxy/network/api/s/default/stat/device/aa:bb:cc:00:00:01") return { body: { data: [{
       wan1: { name: "Fiber", up: true, ip: "203.0.113.5", speed: 1000, "rx_bytes-r": 1_000_000, "tx_bytes-r": 250_000 },
       wan2: { name: "Backup LTE", up: false, ip: "", "rx_bytes-r": 0, "tx_bytes-r": 0 },
+      uplink: { name: "wan1" }, uptime_stats: { WAN: { latency_average: 9, availability: 99.9 }, WAN2: { latency_average: 48, availability: 91.25 } },
       "speedtest-status": { xput_download: "940.5", xput_upload: 880, latency: 7 }, general_temperature: 61 }] } };
+    if (p === "/proxy/network/api/s/default/stat/device") return { body: { data: [{
+      mac: "aa:bb:cc:00:00:01", name: "Dream Machine", model: "UDM-Pro", x_authkey: "SECRETKEY1", x_passphrase: "SECRETPASS", ssh_password: "SECRETSSH",
+      wan1: { name: "Fiber", up: true, ip: "203.0.113.5", "rx_bytes-r": 1_000_000, "tx_bytes-r": 250_000 }, wan2: { name: "Backup LTE", up: false, "rx_bytes-r": 0, "tx_bytes-r": 0 },
+      uplink: { name: "wan1" }, uptime_stats: { WAN: { latency_average: 9, availability: 99.9 }, WAN2: { latency_average: 48, availability: 91.25 } }, general_temperature: 61 }] } };
+    if (p === "/proxy/network/api/s/default/stat/health") return { body: { data: [{ subsystem: "wan", status: "ok", wan_ip: "203.0.113.5", num_gw: 1, "rx_bytes-r": 1_000_000 }, { subsystem: "wlan", status: "ok", num_user: 2 }] } };
+    if (p === "/proxy/network/api/s/default/stat/sysinfo") return { body: { data: [{ version: "9.1.120", hostname: "udm", uptime: 12345, update_available: false, anonymous_controller_id: "SECRETID" }] } };
+    if (p === "/proxy/network/api/s/default/stat/sta") return { body: { data: [{ mac: "11:22:33:44:55:66", name: "Laptop", ip: "192.168.1.20", "rx_bytes-r": 5000, "tx_bytes-r": 100, x_password: "SECRETCLI", psk: "SECRETPSK" }, { mac: "11:22:33:44:55:77", hostname: "tv", "rx_bytes-r": 9000, "tx_bytes-r": 10 }] } };
     if (p === "/proxy/network/api/s/default/stat/device/aa%3Abb%3Acc%3A00%3A00%3A04" || p === "/proxy/network/api/s/default/stat/device/aa:bb:cc:00:00:04") return { body: { meta: { rc: "ok" }, data: [{
       outlet_ac_power_consumption: 60, outlet_ac_power_budget: 1440,
       outlet_table: [{ index: 1, name: "Switch", relay_state: true, outlet_caps: 3, outlet_current: 0.5, outlet_power: 60, outlet_voltage: 120 }, { index: 2, name: "NAS", relay_state: false, outlet_caps: 3, outlet_power: 0 }, { index: 3, name: "USB", relay_state: true, outlet_caps: 1 }] }] } };

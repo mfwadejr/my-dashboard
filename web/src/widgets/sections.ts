@@ -6,7 +6,8 @@ export const SECTION_DEFS: Record<string, SectionDef[]> = {
   "unifi-network": [
     { id: "summary", label: "Summary", hint: "Clients, devices up, wireless clients", on: true },
     { id: "gateway", label: "Gateway", hint: "Name, uptime, CPU, RAM, temperature and total WAN rate", on: true },
-    { id: "wans", label: "WAN links", hint: "Each internet connection with its state, address and throughput", on: false },
+    { id: "wans", label: "WAN links", hint: "Each internet connection: live up/down rate, state, active or standby, latency, availability and public address", on: false },
+    { id: "custom", label: "Custom stats", hint: "Fields you pick in the connection's settings (any value the console reports)", on: false },
     { id: "speedtest", label: "Last speed test", hint: "Result of the gateway's most recent speed test", on: false },
     { id: "aps", label: "Access points", hint: "Each access point with its connected clients", on: false },
     { id: "wifi", label: "Wi-Fi networks", hint: "Each SSID and whether it is enabled", on: false },

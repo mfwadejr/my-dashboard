@@ -167,6 +167,12 @@ dialog::backdrop{background:var(--scrim);backdrop-filter:blur(3px)}
 .field{display:grid;gap:5px;align-content:start;font-size:var(--fs-sm);color:var(--mute)}.field small{font-size:var(--fs-xs)}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
 .fcheck{align-self:start;margin-top:calc(var(--fs-sm) * 1.45 + 5px);min-height:calc(var(--ctl-fs) * 1.3 + var(--ctl-py) * 2 + 2px)}
+.picker{display:flex;flex-direction:column;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;min-width:0}
+.pick-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:center}
+.pick-row .pick-path{grid-column:1/-1}
+.pick-list{max-height:260px;overflow:auto}
+.pick-list .li{gap:8px}
+.pick-list .f1{display:flex;flex-direction:column;min-width:0}
 .chk{display:flex;align-items:center;gap:8px;font-size:var(--fs-md)}
 .acts{display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;align-items:center}.acts-right{display:flex;gap:8px}
 .error{color:var(--bad);margin:0;font-size:var(--fs-md)}.ok-note{color:var(--ok);margin:0;font-size:var(--fs-md)}

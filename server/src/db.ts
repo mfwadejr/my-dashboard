@@ -158,6 +158,9 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX status_incidents_ix ON status_incidents(page_id, created_at);
   `,
+  /* 12: fields a connection should show (UniFi field picker) */ `
+  ALTER TABLE integrations ADD COLUMN fields TEXT NOT NULL DEFAULT '[]';
+  `,
 ];
 
 /** Exposed for tests that need to build an older database. */

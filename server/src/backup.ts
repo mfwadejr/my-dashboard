@@ -6,6 +6,7 @@ import { ValidationError, readDashboard, validateDashboard, writeDashboard, type
 import { getMeta, logEvent, setMeta, snapshotInto, tx } from "./db.js";
 import { INTEGRATION_TYPES } from "./integrations/registry.js";
 import { normalizeUrl } from "./integrations/http.js";
+import { cleanSelection } from "./integrations/unificatalog.js";
 import { cleanOpenMode, cleanOpenUrl } from "./openaddr.js";
 import { DEFAULTS, getSettings, updateSettings } from "./settings.js";
 import { checkImage, cleanIcon, cleanIconRef } from "./icons.js";
@@ -19,7 +20,7 @@ export const BACKUP_FORMAT = "homebase-backup";
 const FORMAT_VERSION = 1;
 
 interface SecretsBlob { kdf: "scrypt-aes-256-gcm"; salt: string; iv: string; tag: string; data: string }
-interface BackupIntegration { id: string; type: string; name: string; url: string; intervalSeconds: number; enabled: boolean; insecureTls: boolean; icon?: string; iconRef?: string; openUrl?: string; openMode?: string }
+interface BackupIntegration { id: string; type: string; name: string; url: string; intervalSeconds: number; enabled: boolean; insecureTls: boolean; icon?: string; iconRef?: string; openUrl?: string; openMode?: string; fields?: Array<{ path: string; label: string; unit: string }> }
 interface BackupCamera { id: string; name: string; main: string; sub: string; icon?: string; iconRef?: string }
 export interface BackupFile {
   format: typeof BACKUP_FORMAT; formatVersion: number; app: { version: string; commit: string }; createdAt: string;
@@ -56,7 +57,7 @@ export function exportBackup(deps: Deps, passphrase: string, opts: { accounts?: 
   const secrets: SecretsPlain = { integrations: {}, cameras: {} };
   const integrations: BackupIntegration[] = store.listIntegrations().map(r => {
     try { if (store.apiKeyOf(r)) secrets.integrations[r.id] = store.apiKeyOf(r); } catch { /* unreadable key: restore will ask for it again */ }
-    return { id: r.id, type: r.type, name: r.name, url: r.url, intervalSeconds: r.interval_s, enabled: Boolean(r.enabled), insecureTls: Boolean(r.insecure_tls), icon: r.icon, iconRef: r.icon_ref, openUrl: r.open_url, openMode: r.open_mode === "inapp" ? "inapp" : "tab" };
+    return { id: r.id, type: r.type, name: r.name, url: r.url, intervalSeconds: r.interval_s, enabled: Boolean(r.enabled), insecureTls: Boolean(r.insecure_tls), icon: r.icon, iconRef: r.icon_ref, openUrl: r.open_url, openMode: r.open_mode === "inapp" ? "inapp" : "tab", fields: store.fieldsOf(r) };
   });
   const cameras: BackupCamera[] = [];
   for (const { id, icon, iconRef } of store.listCameras()) {
@@ -103,7 +104,7 @@ export function parseBackup(raw: unknown): BackupFile {
   const integrations = (Array.isArray(f.integrations) ? f.integrations : []).map((i: any): BackupIntegration => {
     if (!ID.test(String(i?.id))) throw new ValidationError("A connection in the file has an invalid id");
     if (!INTEGRATION_TYPES[String(i.type)]) throw new ValidationError(`The file has a connection of an unknown type "${String(i.type).slice(0, 30)}"`);
-    return { id: String(i.id), type: String(i.type), name: String(i.name ?? "").trim().slice(0, 60) || INTEGRATION_TYPES[i.type].name, url: normalizeUrl(String(i.url ?? "")), intervalSeconds: Math.max(5, Math.min(3600, Math.round(Number(i.intervalSeconds)) || 15)), enabled: Boolean(i.enabled), insecureTls: Boolean(i.insecureTls), icon: cleanIcon(i.icon), iconRef: cleanIcon(i.icon) ? cleanIconRef(i.iconRef) : "", openUrl: (() => { try { return cleanOpenUrl(i.openUrl); } catch { return ""; } })(), openMode: cleanOpenMode(i.openMode) };
+    return { id: String(i.id), type: String(i.type), name: String(i.name ?? "").trim().slice(0, 60) || INTEGRATION_TYPES[i.type].name, url: normalizeUrl(String(i.url ?? "")), intervalSeconds: Math.max(5, Math.min(3600, Math.round(Number(i.intervalSeconds)) || 15)), enabled: Boolean(i.enabled), insecureTls: Boolean(i.insecureTls), icon: cleanIcon(i.icon), iconRef: cleanIcon(i.icon) ? cleanIconRef(i.iconRef) : "", openUrl: (() => { try { return cleanOpenUrl(i.openUrl); } catch { return ""; } })(), openMode: cleanOpenMode(i.openMode), fields: cleanSelection(i.fields) };
   });
   const cameras = (Array.isArray(f.cameras) ? f.cameras : []).map((c: any): BackupCamera => {
     if (!CAM_ID.test(String(c?.id))) throw new ValidationError("A camera in the file has an invalid id");

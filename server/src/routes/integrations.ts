@@ -33,7 +33,7 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
     const p = access.principal(request); const admin = p?.kind === "user" && p.user.role === "admin";
     return store.listIntegrations().map(row => ({
       id: row.id, type: row.type, name: row.name, enabled: Boolean(row.enabled), icon: row.icon, iconRef: row.icon_ref, openUrl: row.open_url, openMode: row.open_mode,
-      ...(admin ? { url: row.url, intervalSeconds: row.interval_s, hasKey: Boolean(row.secret), insecureTls: Boolean(row.insecure_tls) } : {})
+      ...(admin ? { url: row.url, intervalSeconds: row.interval_s, hasKey: Boolean(row.secret), insecureTls: Boolean(row.insecure_tls), fields: store.fieldsOf(row) } : {})
     }));
   });
 
@@ -42,6 +42,7 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
       const input = parseInput(request.body);
       if (!input.apiKey) throw new IntegrationError("An API key is required");
       const id = store.createIntegration(input);
+      if ((request.body as any)?.fields !== undefined) store.setFields(id, (request.body as any).fields);
       poller.reload(id);
       logEvent(db, "info", "connection", `${access.actor(request)} added the connection "${input.name}" (${INTEGRATION_TYPES[input.type].name})`);
       return { id };
@@ -58,6 +59,7 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
     try {
       const input = parseInput(request.body, row);
       store.updateIntegration(id, { name: input.name, url: input.url, apiKey: input.apiKey || undefined, intervalSeconds: input.intervalSeconds, enabled: input.enabled, insecureTls: input.insecureTls, openUrl: input.openUrl, openMode: input.openMode });
+      if ((request.body as any)?.fields !== undefined) store.setFields(id, (request.body as any).fields);
       poller.reload(id);
       logEvent(db, "info", "connection", `${access.actor(request)} changed the connection "${input.name}"${input.enabled ? "" : " (switched off)"}`);
       return { ok: true };
@@ -107,6 +109,24 @@ export function integrationRoutes(app: FastifyInstance, db: DB, store: Store, po
       return await impl.test({ url, apiKey, insecureTls: body.insecureTls === undefined ? Boolean(saved?.insecure_tls) : Boolean(body.insecureTls) });
     } catch (error) {
       if (error instanceof IntegrationError) return { ok: false, message: error.message };
+      throw error;
+    }
+  });
+
+  /** Every field the console offers, for the field picker. Same inputs as the test route. */
+  app.post("/api/integrations/catalog", { preHandler: requireAuth }, async (request, reply) => {
+    const body = (request.body ?? {}) as any;
+    try {
+      const saved = body.id ? store.getIntegration(String(body.id)) : undefined;
+      if (body.id && !saved) return reply.code(404).send({ error: "Not found" });
+      const impl = INTEGRATION_TYPES[saved?.type ?? String(body.type ?? "")];
+      if (!impl?.catalog) return reply.code(400).send({ error: "This app has no list of fields to choose from" });
+      const url = normalizeUrl(String(body.url || saved?.url || ""));
+      const apiKey = (typeof body.apiKey === "string" && body.apiKey.trim()) || (saved ? store.apiKeyOf(saved) : "");
+      if (!apiKey) return reply.code(400).send({ error: "Enter the API key" });
+      return await impl.catalog({ url, apiKey, insecureTls: body.insecureTls === undefined ? Boolean(saved?.insecure_tls) : Boolean(body.insecureTls) });
+    } catch (error) {
+      if (error instanceof IntegrationError) return reply.code(400).send({ error: error.message });
       throw error;
     }
   });

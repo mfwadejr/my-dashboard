@@ -1,5 +1,6 @@
 import { getJson, IntegrationError } from "./http.js";
 import type { Ctx, IntegrationType, PollResult, TestResult } from "./types.js";
+import { buildCatalog, readField, type FieldSel, type FieldUnit, type PickedValue } from "./unificatalog.js";
 
 /** UniFi's official local APIs take the key as X-API-KEY and live under /proxy/<application>/integration/v1 on the console. */
 const get = (ctx: Ctx, path: string, query?: Record<string, string | number>) => getJson(ctx, path, { headers: { "X-API-KEY": ctx.apiKey }, query });
@@ -31,13 +32,19 @@ async function networkTest(ctx: Ctx): Promise<TestResult> {
 const bps = (bytesPerSec: unknown): number | null => { const n = firstNum(bytesPerSec); return n === null ? null : n * 8; };
 
 /** Per-WAN link state and throughput from the gateway's classic device record (wan1, wan2, ...). Optional: an API key may not be accepted there. */
-export function extractWans(classic: any): Array<{ name: string; ifname: string; up: boolean | null; ip: string; rxBps: number | null; txBps: number | null; speedMbps: number | null; type: string }> {
+export function extractWans(classic: any): Array<{ name: string; ifname: string; up: boolean | null; ip: string; rxBps: number | null; txBps: number | null; speedMbps: number | null; type: string; active: boolean | null; latencyMs: number | null; availabilityPct: number | null }> {
   if (!classic || typeof classic !== "object") return [];
+  const stats = classic.uptime_stats && typeof classic.uptime_stats === "object" ? classic.uptime_stats : {};
+  // Which link carries the traffic now: the gateway names its current uplink (wan1, wan2 or the interface), or a link says so itself.
+  const uplink = String(classic.uplink?.name ?? classic.uplink?.ifname ?? classic.uplink?.uplink_ifname ?? "").toLowerCase();
   return Object.keys(classic).filter(k => /^wan\d*$/i.test(k) && classic[k] && typeof classic[k] === "object").sort().map(k => {
-    const w = classic[k];
+    const w = classic[k], key = k.toUpperCase(), st = stats[key] ?? stats[k] ?? (key === "WAN1" ? stats.WAN : null) ?? null; // the first link is often just "WAN"
+    const ifname = String(w.ifname ?? "");
+    const active = uplink ? uplink === k.toLowerCase() || (ifname !== "" && uplink === ifname.toLowerCase()) : w.is_uplink === undefined ? null : truthy(w.is_uplink);
     return {
-      name: String(w.name ?? k.toUpperCase()), ifname: String(w.ifname ?? ""), up: w.up === undefined ? null : truthy(w.up), ip: String(w.ip ?? ""),
-      rxBps: bps(w["rx_bytes-r"]), txBps: bps(w["tx_bytes-r"]), speedMbps: firstNum(w.speed), type: String(w.type ?? "")
+      name: String(w.name ?? k.toUpperCase()), ifname, up: w.up === undefined ? null : truthy(w.up), ip: String(w.ip ?? ""),
+      rxBps: bps(w["rx_bytes-r"]), txBps: bps(w["tx_bytes-r"]), speedMbps: firstNum(w.speed), type: String(w.type ?? ""),
+      active, latencyMs: firstNum(st?.latency_average, w.latency), availabilityPct: firstNum(st?.availability)
     };
   });
 }
@@ -60,6 +67,84 @@ function extractTemp(classic: any): number | null {
 
 const classicDevice = (ctx: Ctx, siteName: string, mac: unknown) =>
   mac ? get(ctx, `/proxy/network/api/s/${siteName}/stat/device/${encodeURIComponent(String(mac))}`).then(r => items(r?.data ? r.data : r)[0] ?? null).catch(() => null) : Promise.resolve(null);
+
+// ---------------------------------------------------------------- Pickable fields, live WAN rates
+
+type Entries = Record<string, { label: string; doc: any }>;
+type Sources = Partial<Record<"health" | "sysinfo" | "devices" | "clients", Entries>>;
+const CLIENT_KEEP = ["name", "hostname", "ip", "network", "essid", "is_wired", "uptime", "signal", "rssi", "channel", "satisfaction", "rx_bytes-r", "tx_bytes-r", "rx_bytes", "tx_bytes"];
+
+const classicRows = async (ctx: Ctx, siteName: string, path: string): Promise<any[]> => {
+  const doc = await get(ctx, `/proxy/network/api/s/${siteName}/${path}`);
+  return items(doc?.data ? doc.data : doc);
+};
+
+/** Fetches the classic documents that the wanted sources need. A document the console will not give is left out and noted. */
+async function gatherSources(ctx: Ctx, siteName: string, need: Set<string>, topClients = 0): Promise<{ sources: Sources; notes: string[] }> {
+  const sources: Sources = {}, notes: string[] = [];
+  const job = (name: string, fn: () => Promise<void>) => fn().catch(e => { notes.push(`${name} is not available${e instanceof IntegrationError ? ` (${e.message.replace(/^The app (answered with )?/, "").slice(0, 80)})` : ""}`); });
+  await Promise.all([
+    need.has("health") && job("Site health", async () => {
+      const rows = await classicRows(ctx, siteName, "stat/health");
+      sources.health = Object.fromEntries(rows.filter(r => r?.subsystem).map(r => [String(r.subsystem), { label: String(r.subsystem).toUpperCase(), doc: r }]));
+    }),
+    need.has("sysinfo") && job("Controller information", async () => {
+      const rows = await classicRows(ctx, siteName, "stat/sysinfo");
+      if (rows[0]) sources.sysinfo = { controller: { label: "Controller", doc: rows[0] } };
+    }),
+    need.has("devices") && job("The device list", async () => {
+      const rows = await classicRows(ctx, siteName, "stat/device");
+      sources.devices = Object.fromEntries(rows.filter(r => r?.mac).map(r => [String(r.mac).toLowerCase(), { label: String(r.name ?? r.model ?? r.mac), doc: r }]));
+    }),
+    need.has("clients") && job("The client list", async () => {
+      let rows = await classicRows(ctx, siteName, "stat/sta");
+      rows = rows.filter(r => r?.mac);
+      if (topClients) rows = rows.sort((a, b) => num(b["rx_bytes-r"]) + num(b["tx_bytes-r"]) - num(a["rx_bytes-r"]) - num(a["tx_bytes-r"])).slice(0, topClients);
+      sources.clients = Object.fromEntries(rows.slice(0, 1000).map(r => [String(r.mac).toLowerCase(), { label: String(r.name ?? r.hostname ?? r.mac), doc: Object.fromEntries(CLIENT_KEEP.filter(k => r[k] !== undefined).map(k => [k, r[k]])) }]));
+    })
+  ].filter(Boolean) as Array<Promise<void>>);
+  return { sources, notes };
+}
+
+interface SiteInfo { siteId: string; siteName: string; gw: { id: string; mac: string; name: string } | null; at: number }
+const siteCache = new Map<string, SiteInfo>();
+
+/** The site and the gateway, remembered for a few minutes so the fast sampler does not look them up every time. */
+async function siteInfo(ctx: Ctx): Promise<SiteInfo> {
+  const key = `${ctx.url}|${ctx.apiKey.slice(-8)}`, hit = siteCache.get(key);
+  if (hit && Date.now() - hit.at < 300_000) return hit;
+  const sites = items(await get(ctx, `${NET}/sites`, { limit: 200 }));
+  const site = sites.find(s => s?.internalReference === "default") ?? sites[0];
+  if (!site?.id) throw new IntegrationError("UniFi Network returned no sites");
+  const devices = items(await get(ctx, `${NET}/sites/${site.id}/devices`, { limit: 200 }));
+  const g = devices.find(d => GATEWAY_MODEL.test(String(d?.model ?? "")) || /gateway/i.test(String(d?.type ?? "")));
+  const info: SiteInfo = { siteId: String(site.id), siteName: encodeURIComponent(String(site.internalReference ?? "default")), gw: g?.id ? { id: String(g.id), mac: String(g.macAddress ?? g.mac ?? ""), name: String(g.name ?? g.model ?? "Gateway") } : null, at: Date.now() };
+  siteCache.set(key, info);
+  return info;
+}
+
+/** Everything the console shows, as pickable fields. */
+async function networkCatalog(ctx: Ctx) {
+  const site = await siteInfo(ctx);
+  const { sources, notes } = await gatherSources(ctx, site.siteName, new Set(["health", "sysinfo", "devices", "clients"]), 25);
+  const fields = buildCatalog(sources);
+  if (!fields.length) notes.push("The console gave no readable fields. The classic network API may not accept this API key on your version.");
+  if (sources.clients) notes.push("Clients: the 25 busiest right now are listed; others can be added once they are active.");
+  return { fields, notes };
+}
+
+/** The gateway's WAN rates, for the fast sampler: one small document per sample. */
+async function wanSample(ctx: Ctx): Promise<Record<string, number | null>> {
+  const site = await siteInfo(ctx);
+  if (!site.gw?.mac) throw new IntegrationError("No gateway was found to read WAN rates from");
+  const doc = await classicDevice(ctx, site.siteName, site.gw.mac);
+  if (!doc) throw new IntegrationError("The gateway did not answer the classic device request");
+  const wans = extractWans(doc), out: Record<string, number | null> = {};
+  wans.forEach((w, i) => { out[`wan${i + 1}_rx_bps`] = w.rxBps; out[`wan${i + 1}_tx_bps`] = w.txBps; });
+  out.rx_bps = wans.reduce<number | null>((a, w) => (w.rxBps === null ? a : (a ?? 0) + w.rxBps), null);
+  out.tx_bps = wans.reduce<number | null>((a, w) => (w.txBps === null ? a : (a ?? 0) + w.txBps), null);
+  return out;
+}
 
 const AP_MODEL = /^(U6|U7|UAP|UWB|E7|UK|U-?LR|UBB)/i;
 const isAp = (d: any) => (Array.isArray(d?.features) ? d.features.some((f: any) => /access.?point/i.test(String(f))) : AP_MODEL.test(String(d?.model ?? "")));
@@ -107,7 +192,13 @@ async function networkPoll(ctx: Ctx): Promise<PollResult> {
     gateway.tempC = extractTemp(classicGw);
   }
   // When the classic record is not available, the Integration API still names the WANs even though it has no per-WAN rates.
-  if (!wans.length) wans = items(settled(wansDoc)).map((w: any) => ({ name: String(w?.name ?? w?.id ?? "WAN"), ifname: "", up: null, ip: "", rxBps: null, txBps: null, speedMbps: null, type: "" }));
+  if (!wans.length) wans = items(settled(wansDoc)).map((w: any) => ({ name: String(w?.name ?? w?.id ?? "WAN"), ifname: "", up: null, ip: "", rxBps: null, txBps: null, speedMbps: null, type: "", active: null, latencyMs: null, availabilityPct: null }));
+  // Site health gives the public address; the picked fields are read from the same documents.
+  const picked = ctx.fields ?? [];
+  const need = new Set<string>(["health", ...picked.map(f => f.path.split("/")[0] ?? "")]);
+  const { sources, notes: sourceNotes } = await gatherSources(ctx, siteName, need);
+  const publicIp = (() => { const v = sources.health?.wan?.doc?.wan_ip; return typeof v === "string" && v ? v : null; })();
+  const custom = picked.map(f => ({ path: f.path, label: f.label, unit: f.unit, value: readField(sources, f.path) }));
   const apDevices = devices.filter(isAp);
   const byAp = new Map<string, number>();
   if (cdoc && exact) for (const c of clients) if (typeOf(c) === "WIRELESS" && c?.uplinkDeviceId) byAp.set(String(c.uplinkDeviceId), (byAp.get(String(c.uplinkDeviceId)) ?? 0) + 1);
@@ -122,7 +213,7 @@ async function networkPoll(ctx: Ctx): Promise<PollResult> {
     site: { id: String(site.id), name: String(site.name ?? "Default") },
     devices: devicesDoc.status === "fulfilled" ? { total: devices.length, online: devices.length - problem.length, offline: problem.length, problems: problem.slice(0, 6).map(d => ({ name: String(d.name ?? d.model ?? "Device"), model: String(d.model ?? ""), state: String(d.state) })) } : null,
     clients: totalClients === null ? null : { total: totalClients, wired: exact ? clients.filter(c => typeOf(c) === "WIRED").length : null, wireless: exact ? clients.filter(c => typeOf(c) === "WIRELESS").length : null },
-    gateway, wans, speedtest, aps, wifi, networks,
+    gateway, wans, publicIp, custom, customNotes: picked.length ? sourceNotes : [], speedtest, aps, wifi, networks,
     deviceList: devicesDoc.status === "fulfilled" ? devices.map(d => ({ name: String(d.name ?? d.model ?? "Device"), model: String(d.model ?? ""), state: String(d.state ?? ""), firmware: String(d.firmwareVersion ?? ""), updatable: d.firmwareUpdatable === true })) : null
   };
   const metrics: Record<string, number> = {};
@@ -343,7 +434,9 @@ export const unifiNetwork: IntegrationType = {
   description: "Clients, devices online or offline, gateway load and WAN rate",
   urlHint: "https://192.168.1.1",
   keyLabel: "API key (UniFi Network → Settings → Control Plane → Integrations)",
-  test: networkTest, poll: networkPoll
+  test: networkTest, poll: networkPoll,
+  live: { intervalMs: 3000, sample: wanSample },
+  catalog: networkCatalog
 };
 
 export const unifiProtect: IntegrationType = {

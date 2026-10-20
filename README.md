@@ -28,6 +28,8 @@ To update, pull the newest image (`ghcr.io/mfwadejr/my-dashboard:latest`) and re
 | ZimaOS | `http://zima-ip` | your ZimaOS login as `username:password` (ZimaOS has no API keys; stored encrypted; a dedicated user is best) |
 | UniFi Network, Protect, PDU | the console, e.g. `https://192.168.1.1` | an API key created inside that UniFi application (Integrations) |
 
+On a **UniFi Network** connection, **Load the console's fields** (after entering the address and key) lists every value the console reports, so you can pick what the tile's **Custom stats** section shows; **WAN links** shows live per-link rates, active/standby, latency and availability.
+
 UniFi consoles use a self-signed certificate: tick **Allow a self-signed certificate** on those connections. The **UniFi PDU** connection finds PDUs among your UniFi Network devices; per-outlet power uses UniFi's classic API when your console allows it. **UniFi probe (UNAS / PDU)** has no tile: press Test connection and it lists which API addresses your console answers (key names only, never values), which is how UNAS support will be built.
 
 ## Cameras
