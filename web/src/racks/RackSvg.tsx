@@ -9,7 +9,8 @@ const trim = (s: string, px: number) => { const max = Math.max(3, Math.floor(px 
 /** Rows of small marks (ports, outlets) packed into the space from x0 to x1, vertically centred in a plate of height h. */
 function grid(count: number, x0: number, x1: number, h: number, shape: "sq" | "round", key: string): ReactNode {
   if (count <= 0 || x1 - x0 < 20) return null;
-  const rows = h >= 40 || count > 16 ? 2 : 1, cols = Math.ceil(count / rows), pitch = Math.min(15, (x1 - x0) / cols), size = Math.max(4, Math.min(10, pitch * 0.7));
+  // A standard 1U panel or switch has up to 24 ports in one row; 48 go in two. Rows are added only when a row would not fit or the plate is tall.
+  const room = Math.max(1, Math.floor((h - 4) / 9)), rows = Math.min(room, Math.max(Math.ceil(count / 24), Math.ceil(count / Math.max(1, Math.floor((x1 - x0) / 7))))), cols = Math.ceil(count / rows), pitch = Math.min(15, (x1 - x0) / cols), size = Math.max(4, Math.min(10, pitch * 0.7));
   const rowH = size + 3, top = (h - rows * rowH + 3) / 2, start = x1 - cols * pitch;
   const out: ReactNode[] = [];
   for (let i = 0; i < count; i++) {
