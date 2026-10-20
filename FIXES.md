@@ -2,6 +2,10 @@
 
 Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 
+## Update55 (rack pictures)
+- Equipment can show a front and a rear picture (upload, image address, or the NetBox device library search); fit modes; migration 14. The library is fetched live by the server, so it needs internet from the container.
+- Untested: the library against the real GitHub (only a mock); whether it has pictures for every UniFi model; the library's picture licensing (not checked, copies are saved to the user's own server). Uploading your own picture always works.
+
 ## Backend: finished (items 1-20 shipped in update33, update34 and update35).
 
 ## After the backend: search, launcher and opening services (agreed in discussion, not built yet)

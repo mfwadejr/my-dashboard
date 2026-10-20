@@ -118,7 +118,7 @@ export function RackSvg({ rack, view, live, selectedId, onSelect, admin, onMove,
     const width = Math.min(d.width, rack.width) * IN - 2, x = POST + (inner - width) / 2, h = d.units * UH - 2, y = yOf(slot, d.units) + 1;
     const tooWide = d.width > rack.width;
     const l = live(d);
-    const picture = !ghostly && view === "front" && d.look === "image" && d.icon;
+    const pic = view === "front" ? d.icon : d.rearIcon, picture = !ghostly && d.look === "image" && pic;
     return (
       <g key={d.id} transform={`translate(${x} ${y})`} data-device={d.id}
         className={`rk-dev ${ghostly ? "ghost" : ""} ${selectedId === d.id ? "sel" : ""} ${dragging ? (drag!.ok ? "drag ok" : "drag bad") : ""} ${admin && !ghostly ? "mv" : ""}`}
@@ -126,9 +126,9 @@ export function RackSvg({ rack, view, live, selectedId, onSelect, admin, onMove,
         onClick={ev => { ev.stopPropagation(); if (!admin) onSelect(d.id); }}>
         <title>{`${d.name} · ${rangeText(rack, d)}${tooWide ? " · wider than this rack" : ""}`}</title>
         {picture ? <>
-          <image href={iconUrl(d.icon)} width={width} height={h} preserveAspectRatio="none" />
+          <svg width={width} height={h} overflow="hidden"><rect width={width} height={h} className="rk-picbg" />
+            <image href={iconUrl(pic)} width={width} height={h} preserveAspectRatio={d.fit === "fit" ? "xMidYMid meet" : d.fit === "fill" ? "xMidYMid slice" : "none"} /></svg>
           <rect className="rk-frame" width={width} height={h} rx={2} />
-          <text className="rk-tag" x={6} y={h / 2} dominantBaseline="central">{trim(d.name, width - 12)}</text>
         </> : <Plate d={d} w={width} h={h} view={ghostly ? (view === "front" ? "rear" : "front") : view} live={l} />}
         {tooWide && <rect className="rk-wide" width={width} height={h} rx={2} />}
       </g>

@@ -17,14 +17,14 @@ export interface RackDevice {
   /** 19 or 10 (inches). A device wider than its rack is flagged in the page, not refused. */
   width: 19 | 10;
   /** "" or "1".."6": one of the theme's accent colours. */
-  color: string; ports: number; watts: number | null; integrationId: string; notes: string; icon: string; iconRef: string; look: "drawn" | "image";
+  color: string; ports: number; watts: number | null; integrationId: string; notes: string; icon: string; iconRef: string; rearIcon: string; rearIconRef: string; fit: "stretch" | "fit" | "fill"; look: "drawn" | "image";
 }
 export interface Rack { id: string; name: string; units: number; width: 19 | 10; topDown: boolean; notes: string; position: number; devices: RackDevice[] }
 
 interface RackRaw { id: string; name: string; units: number; width: number; top_down: number; notes: string; position: number }
-interface DevRaw { id: string; rack_id: string; name: string; kind: string; units: number; slot: number; face: string; width: number; color: string; ports: number; watts: number | null; integration_id: string; notes: string; icon: string; icon_ref: string; look: string }
+interface DevRaw { id: string; rack_id: string; name: string; kind: string; units: number; slot: number; face: string; width: number; color: string; ports: number; watts: number | null; integration_id: string; notes: string; icon: string; icon_ref: string; look: string; rear_icon: string; rear_icon_ref: string; fit: string }
 const RCOLS = "id, name, units, width, top_down, notes, position";
-const DCOLS = "id, rack_id, name, kind, units, slot, face, width, color, ports, watts, integration_id, notes, icon, icon_ref, look";
+const DCOLS = "id, rack_id, name, kind, units, slot, face, width, color, ports, watts, integration_id, notes, icon, icon_ref, look, rear_icon, rear_icon_ref, fit";
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const int = (v: unknown, lo: number, hi: number, what: string): number => {
@@ -36,7 +36,7 @@ const int = (v: unknown, lo: number, hi: number, what: string): number => {
 const mapDev = (r: DevRaw): RackDevice => ({
   id: r.id, rackId: r.rack_id, name: r.name, kind: (DEVICE_KINDS as readonly string[]).includes(r.kind) ? r.kind as DeviceKind : "generic", units: r.units, slot: r.slot,
   face: r.face === "front" || r.face === "rear" ? r.face : "both", width: r.width === 10 ? 10 : 19, color: r.color, ports: r.ports, watts: r.watts, integrationId: r.integration_id, notes: r.notes,
-  icon: r.icon, iconRef: r.icon_ref, look: r.look === "image" ? "image" : "drawn"
+  icon: r.icon, iconRef: r.icon_ref, rearIcon: r.rear_icon, rearIconRef: r.rear_icon_ref, fit: r.fit === "fit" || r.fit === "fill" ? r.fit : "stretch", look: r.look === "image" ? "image" : "drawn"
 });
 
 const occupies = (face: Face) => (face === "both" ? ["front", "rear"] : [face]);
@@ -126,10 +126,13 @@ export class Racks {
     if (!/^[0-6]?$/.test(color) || color === "0") throw new ValidationError("Unknown colour");
     const watts = b.watts === undefined ? old?.watts ?? null : b.watts === null || b.watts === "" ? null : int(b.watts, 0, 100000, "The power draw");
     const icon = b.icon === undefined ? old?.icon ?? "" : cleanIcon(b.icon);
+    const rearIcon = b.rearIcon === undefined ? old?.rearIcon ?? "" : cleanIcon(b.rearIcon);
+    const fit = String(b.fit ?? old?.fit ?? "stretch");
     const dev = {
       name, kind: kind as DeviceKind, units, slot, face: face as Face, width: (Number(b.width ?? old?.width ?? rack.width) === 10 ? 10 : 19) as 10 | 19, color,
       ports: int(b.ports ?? old?.ports ?? 0, 0, 96, "The port count"), watts, integrationId: text(b.integrationId ?? old?.integrationId ?? "", 64), notes: text(b.notes ?? old?.notes ?? "", 2000),
-      icon, iconRef: icon ? (b.iconRef === undefined ? old?.iconRef ?? "" : cleanIconRef(b.iconRef)) : "", look: (b.look === undefined ? old?.look ?? "drawn" : b.look === "image" ? "image" : "drawn") as "drawn" | "image"
+      icon, iconRef: icon ? (b.iconRef === undefined ? old?.iconRef ?? "" : cleanIconRef(b.iconRef)) : "", look: (b.look === undefined ? old?.look ?? "drawn" : b.look === "image" ? "image" : "drawn") as "drawn" | "image",
+      rearIcon, rearIconRef: rearIcon ? (b.rearIconRef === undefined ? old?.rearIconRef ?? "" : cleanIconRef(b.rearIconRef)) : "", fit: (fit === "fit" || fit === "fill" ? fit : "stretch") as "stretch" | "fit" | "fill"
     };
     for (const other of rack.devices) {
       if (other.id === old?.id) continue;
@@ -144,8 +147,8 @@ export class Racks {
     if (rack.devices.length >= 200) throw new ValidationError("A rack holds up to 200 devices");
     const d = this.cleanDevice(rack, input);
     const id = "d" + randomUUID().replace(/-/g, "").slice(0, 10);
-    this.db.prepare("INSERT INTO rack_devices (id, rack_id, name, kind, units, slot, face, width, color, ports, watts, integration_id, notes, icon, icon_ref, look, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(id, rackId, d.name, d.kind, d.units, d.slot, d.face, d.width, d.color, d.ports, d.watts, d.integrationId, d.notes, d.icon, d.iconRef, d.look, Date.now());
+    this.db.prepare("INSERT INTO rack_devices (id, rack_id, name, kind, units, slot, face, width, color, ports, watts, integration_id, notes, icon, icon_ref, look, rear_icon, rear_icon_ref, fit, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, rackId, d.name, d.kind, d.units, d.slot, d.face, d.width, d.color, d.ports, d.watts, d.integrationId, d.notes, d.icon, d.iconRef, d.look, d.rearIcon, d.rearIconRef, d.fit, Date.now());
     return this.getDevice(id)!;
   }
 
@@ -154,8 +157,8 @@ export class Racks {
     if (!old) return undefined;
     const rack = this.get(old.rackId)!;
     const d = this.cleanDevice(rack, input, old);
-    this.db.prepare("UPDATE rack_devices SET name=?, kind=?, units=?, slot=?, face=?, width=?, color=?, ports=?, watts=?, integration_id=?, notes=?, icon=?, icon_ref=?, look=? WHERE id=?")
-      .run(d.name, d.kind, d.units, d.slot, d.face, d.width, d.color, d.ports, d.watts, d.integrationId, d.notes, d.icon, d.iconRef, d.look, id);
+    this.db.prepare("UPDATE rack_devices SET name=?, kind=?, units=?, slot=?, face=?, width=?, color=?, ports=?, watts=?, integration_id=?, notes=?, icon=?, icon_ref=?, look=?, rear_icon=?, rear_icon_ref=?, fit=? WHERE id=?")
+      .run(d.name, d.kind, d.units, d.slot, d.face, d.width, d.color, d.ports, d.watts, d.integrationId, d.notes, d.icon, d.iconRef, d.look, d.rearIcon, d.rearIconRef, d.fit, id);
     return this.getDevice(id);
   }
 
@@ -184,8 +187,8 @@ export class Racks {
           let clean;
           try { clean = this.cleanDevice(placed, d); } catch { continue; }
           const id = /^[A-Za-z0-9_-]{1,64}$/.test(d.id) ? d.id : "d" + randomUUID().replace(/-/g, "").slice(0, 10);
-          this.db.prepare("INSERT INTO rack_devices (id, rack_id, name, kind, units, slot, face, width, color, ports, watts, integration_id, notes, icon, icon_ref, look, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-            .run(id, r.id, clean.name, clean.kind, clean.units, clean.slot, clean.face, clean.width, clean.color, clean.ports, clean.watts, clean.integrationId, clean.notes, clean.icon, clean.iconRef, clean.look, Date.now());
+          this.db.prepare("INSERT INTO rack_devices (id, rack_id, name, kind, units, slot, face, width, color, ports, watts, integration_id, notes, icon, icon_ref, look, rear_icon, rear_icon_ref, fit, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .run(id, r.id, clean.name, clean.kind, clean.units, clean.slot, clean.face, clean.width, clean.color, clean.ports, clean.watts, clean.integrationId, clean.notes, clean.icon, clean.iconRef, clean.look, clean.rearIcon, clean.rearIconRef, clean.fit, Date.now());
           placed.devices.push({ ...clean, id, rackId: r.id });
           nd++;
         }
@@ -203,7 +206,7 @@ export function parseRacks(raw: unknown): Rack[] {
     devices: (Array.isArray(r.devices) ? r.devices : []).slice(0, 200).map((d: any): RackDevice => ({
       id: String(d?.id ?? ""), rackId: String(r.id), name: text(d?.name, 60) || "Device", kind: (DEVICE_KINDS as readonly string[]).includes(d?.kind) ? d.kind : "generic", units: Math.max(1, Math.round(Number(d?.units)) || 1), slot: Math.max(1, Math.round(Number(d?.slot)) || 1),
       face: d?.face === "front" || d?.face === "rear" ? d.face : "both", width: Number(d?.width) === 10 ? 10 : 19, color: /^[1-6]?$/.test(String(d?.color ?? "")) ? String(d?.color ?? "") : "", ports: Math.max(0, Math.min(96, Math.round(Number(d?.ports)) || 0)),
-      watts: d?.watts === null || d?.watts === undefined ? null : Math.max(0, Math.round(Number(d.watts)) || 0), integrationId: text(d?.integrationId, 64), notes: text(d?.notes, 2000), icon: cleanIcon(d?.icon), iconRef: cleanIcon(d?.icon) ? cleanIconRef(d?.iconRef) : "", look: d?.look === "image" ? "image" : "drawn"
+      watts: d?.watts === null || d?.watts === undefined ? null : Math.max(0, Math.round(Number(d.watts)) || 0), integrationId: text(d?.integrationId, 64), notes: text(d?.notes, 2000), icon: cleanIcon(d?.icon), iconRef: cleanIcon(d?.icon) ? cleanIconRef(d?.iconRef) : "", rearIcon: cleanIcon(d?.rearIcon), rearIconRef: cleanIcon(d?.rearIcon) ? cleanIconRef(d?.rearIconRef) : "", fit: d?.fit === "fit" || d?.fit === "fill" ? d.fit : "stretch", look: d?.look === "image" ? "image" : "drawn"
     }))
   }));
 }

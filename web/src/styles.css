@@ -521,3 +521,6 @@ small{font-size:var(--fs-xs)}
 .rk-dev.drag.bad .rk-body{stroke:var(--bad);stroke-width:2}
 .rk-dev.ghost{opacity:.35}
 .rk-dev.ghost .rk-body{stroke-dasharray:3 3}
+.libmodels{display:flex;flex-direction:column;gap:4px;max-height:320px;overflow:auto}
+.libmodel{justify-content:flex-start;text-align:left}
+.rk-picbg{fill:var(--panel2)}

@@ -30,7 +30,7 @@ To update, pull the newest image (`ghcr.io/mfwadejr/my-dashboard:latest`) and re
 
 On a **UniFi Network** connection, **Load the console's fields** (after entering the address and key) lists every value the console reports, so you can pick what the tile's **Custom stats** section shows; **WAN links** shows live per-link rates, active/standby, latency and availability.
 
-**Racks** (top bar): add a rack (height, 19 or 10 inch), then equipment. Drag equipment to move it, click an empty unit to add one there, or type a U number in its settings. Link a device to a connection to show it online or offline.
+**Racks** (top bar): add a rack (height, 19 or 10 inch), then equipment. Drag equipment to move it, click an empty unit to add one there, or type a U number in its settings. Link a device to a connection to show it online or offline. **Pictures:** in a device's settings choose "My pictures", then either upload a front (and rear) picture or press "Find in the device library" to search the open NetBox device library (UniFi and others); the server downloads the pictures you pick and keeps them as your own copies. Fit controls stretch, keep-shape or crop.
 
 UniFi consoles use a self-signed certificate: tick **Allow a self-signed certificate** on those connections. The **UniFi PDU** connection finds PDUs among your UniFi Network devices; per-outlet power uses UniFi's classic API when your console allows it. **UniFi probe (UNAS / PDU)** has no tile: press Test connection and it lists which API addresses your console answers (key names only, never values), which is how UNAS support will be built.
 

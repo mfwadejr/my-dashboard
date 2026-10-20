@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import { IconButton } from "../components/IconButton";
 import { Field, Modal } from "../dialogs/Modal";
@@ -49,15 +49,17 @@ export function DeviceDialog({ rack, device, startAt, integrations, onDone, onCl
   const n = useNotice();
   const first = KINDS[0];
   const [f, setF] = useState(() => device
-    ? { name: device.name, kind: device.kind, units: device.units, typed: toTyped(rack, device.slot, device.units), face: device.face, width: device.width, color: device.color, ports: device.ports, watts: device.watts === null ? "" : String(device.watts), integrationId: device.integrationId, notes: device.notes, look: device.look }
-    : { name: "", kind: first.id as RackKind, units: first.units, typed: startAt ?? 1, face: "both" as RackFace, width: rack.width as 19 | 10, color: "", ports: first.ports, watts: "", integrationId: "", notes: "", look: "drawn" as "drawn" | "image" });
+    ? { name: device.name, kind: device.kind, units: device.units, typed: toTyped(rack, device.slot, device.units), face: device.face, width: device.width, color: device.color, ports: device.ports, watts: device.watts === null ? "" : String(device.watts), integrationId: device.integrationId, notes: device.notes, look: device.look, fit: device.fit }
+    : { name: "", kind: first.id as RackKind, units: first.units, typed: startAt ?? 1, face: "both" as RackFace, width: rack.width as 19 | 10, color: "", ports: first.ports, watts: "", integrationId: "", notes: "", look: "drawn" as "drawn" | "image", fit: "stretch" as "stretch" | "fit" | "fill" });
   const [icon, setIcon] = useState({ icon: device?.icon ?? "", iconRef: device?.iconRef ?? "" });
+  const [rear, setRear] = useState({ icon: device?.rearIcon ?? "", iconRef: device?.rearIconRef ?? "" });
+  const [finder, setFinder] = useState(false);
   const [busy, setBusy] = useState(false);
   const info = kindInfo(f.kind);
   const pick = (kind: RackKind) => { const k = kindInfo(kind); setF({ ...f, kind, ports: k.ports, units: device ? f.units : k.units, name: f.name || (kind === "blank" ? "Blank" : "") }); };
   const save = async () => {
     setBusy(true); n.clear();
-    const body = { name: f.name, kind: f.kind, units: f.units, slot: fromTyped(rack, f.typed, f.units), face: f.face, width: f.width, color: f.color, ports: f.ports, watts: f.watts === "" ? null : Number(f.watts), integrationId: f.integrationId, notes: f.notes, look: f.look, icon: icon.icon, iconRef: icon.iconRef };
+    const body = { name: f.name, kind: f.kind, units: f.units, slot: fromTyped(rack, f.typed, f.units), face: f.face, width: f.width, color: f.color, ports: f.ports, watts: f.watts === "" ? null : Number(f.watts), integrationId: f.integrationId, notes: f.notes, look: f.look, fit: f.fit, icon: icon.icon, iconRef: icon.iconRef, rearIcon: rear.icon, rearIconRef: rear.iconRef };
     try {
       const d = device ? await api.put<RackDeviceInfo>(`/api/racks/devices/${device.id}`, body) : await api.post<RackDeviceInfo>(`/api/racks/${rack.id}/devices`, body);
       onDone(d.id);
@@ -91,14 +93,27 @@ export function DeviceDialog({ rack, device, startAt, integrations, onDone, onCl
           </div>
         </Field>
         <Field label="Linked connection" hint="Shows whether it is online, and a linked power strip's live watts. Optional."><select value={f.integrationId} onChange={e => setF({ ...f, integrationId: e.target.value })}><option value="">None</option>{integrations.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select></Field>
-        <Field label="Look" hint="Homebase draws the front for you. Your own picture is used for the front view only; the rear is always drawn.">
+        <Field label="Look" hint="Homebase can draw the equipment, or show your own pictures: the front picture on the front view and the rear picture on the rear view. Pictures are saved on your server.">
           <div className="row g8">
-            <select value={f.look} onChange={e => setF({ ...f, look: e.target.value as "drawn" | "image" })}><option value="drawn">Drawn by Homebase</option><option value="image">My picture</option></select>
-            {f.look === "image" && <><IconButton icon={icon.icon} iconRef={icon.iconRef} name={f.name || "Picture"} size={32} label="Choose a picture" onChange={v => setIcon(v)} /><span className="sub">{icon.icon ? "Picture chosen" : "Choose a picture (upload or an image address)"}</span></>}
+            <select value={f.look} onChange={e => setF({ ...f, look: e.target.value as "drawn" | "image" })}><option value="drawn">Drawn by Homebase</option><option value="image">My pictures</option></select>
+            {f.look === "image" && <button type="button" className="btn" onClick={() => setFinder(true)}>Find in the device library…</button>}
           </div>
         </Field>
+        {f.look === "image" && <>
+          <div className="row2">
+            <Field label="Front picture"><div className="row g8"><IconButton icon={icon.icon} iconRef={icon.iconRef} name={f.name || "Front"} size={32} label="Choose the front picture" onChange={v => setIcon(v)} /><span className="sub">{icon.icon ? "Chosen" : "Upload, or an image address"}</span></div></Field>
+            <Field label="Rear picture"><div className="row g8"><IconButton icon={rear.icon} iconRef={rear.iconRef} name={f.name || "Rear"} size={32} label="Choose the rear picture" onChange={v => setRear(v)} /><span className="sub">{rear.icon ? "Chosen" : "Optional. The rear is drawn without one"}</span></div></Field>
+          </div>
+          <Field label="Picture fit" hint="Stretch fills the slot exactly. Fit keeps the picture's shape. Fill keeps the shape and crops the edges."><select value={f.fit} onChange={e => setF({ ...f, fit: e.target.value as "stretch" | "fit" | "fill" })}><option value="stretch">Stretch to the slot</option><option value="fit">Fit, keeping its shape</option><option value="fill">Fill, cropping the edges</option></select></Field>
+        </>}
         <Field label="Notes"><textarea rows={3} value={f.notes} maxLength={2000} onChange={e => setF({ ...f, notes: e.target.value })} placeholder="Serial, asset tag, address, warranty…" /></Field>
         {n.el}
+        {finder && <LibraryDialog onClose={() => setFinder(false)} onPick={r => {
+          setFinder(false);
+          setIcon(r.front ?? { icon: "", iconRef: "" }); setRear(r.rear ?? { icon: "", iconRef: "" });
+          const kind: RackKind = r.ports >= 8 ? "switch" : f.kind;
+          setF({ ...f, look: "image", name: f.name || r.name, units: Math.max(1, Math.min(rack.units, r.units)), face: r.fullDepth ? f.face : "front", kind, ports: r.ports || f.ports });
+        }} />}
         <div className="acts">
           <span>{device && <Confirm label="Remove" name="Remove this equipment from the rack" sure="Click again to remove" onGo={() => void remove()} />}</span>
           <span className="acts-right"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn pri" disabled={busy || !f.name.trim()}>Save</button></span>
@@ -108,3 +123,45 @@ export function DeviceDialog({ rack, device, startAt, integrations, onDone, onCl
   );
 }
 
+
+interface Imported { name: string; units: number; fullDepth: boolean; ports: number; front: { icon: string; iconRef: string } | null; rear: { icon: string; iconRef: string } | null }
+
+/** Browses the NetBox community device library (fetched by this server) and saves the chosen model's pictures as the user's own copies. */
+function LibraryDialog({ onPick, onClose }: { onPick: (r: Imported) => void; onClose: () => void }) {
+  const n = useNotice();
+  const [mfrs, setMfrs] = useState<string[]>([]);
+  const [mfr, setMfr] = useState("Ubiquiti");
+  const [q, setQ] = useState("");
+  const [models, setModels] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState("");
+  useEffect(() => { api.get<string[]>("/api/racks/library/manufacturers").then(m => { setMfrs(m); if (m.length && !m.includes("Ubiquiti")) setMfr(m[0]); }).catch(e => n.bad(e)); }, []);
+  useEffect(() => {
+    if (!mfr) return;
+    setModels(null); n.clear();
+    const t = setTimeout(() => { api.get<string[]>(`/api/racks/library/models?manufacturer=${encodeURIComponent(mfr)}&q=${encodeURIComponent(q)}`).then(setModels).catch(e => { n.bad(e); setModels([]); }); }, 250);
+    return () => clearTimeout(t);
+  }, [mfr, q]);
+  const choose = async (model: string) => {
+    setBusy(model); n.clear();
+    try { onPick(await api.post<Imported>("/api/racks/library/import", { manufacturer: mfr, model })); } catch (e) { n.bad(e); }
+    setBusy("");
+  };
+  return (
+    <Modal title="Device library" eyebrow="Community pictures (NetBox)" onClose={onClose} wide>
+      <div className="form">
+        <p className="sub">Searches the open NetBox device library on the internet. The picture you choose is saved on your server as your own copy. Check the library's terms if you share your dashboard publicly.</p>
+        <div className="row2">
+          <Field label="Manufacturer"><select value={mfr} onChange={e => setMfr(e.target.value)}>{(mfrs.length ? mfrs : [mfr]).map(m => <option key={m} value={m}>{m}</option>)}</select></Field>
+          <Field label="Search"><input value={q} autoFocus onChange={e => setQ(e.target.value)} placeholder="USW Pro 24, UDM, Dream Machine…" /></Field>
+        </div>
+        {n.el}
+        <div className="libmodels" role="list">
+          {models === null && <p className="sub">Searching…</p>}
+          {models?.length === 0 && <p className="sub">No models with pictures found.</p>}
+          {models?.map(m => <button key={m} type="button" role="listitem" className="btn libmodel" disabled={!!busy} onClick={() => void choose(m)}>{busy === m ? "Saving…" : m}</button>)}
+        </div>
+        <div className="acts"><span /><span className="acts-right"><button type="button" className="btn" onClick={onClose}>Close</button></span></div>
+      </div>
+    </Modal>
+  );
+}

@@ -59,6 +59,6 @@ export type RackKind = "generic" | "switch" | "patch" | "router" | "server" | "n
 export type RackFace = "front" | "rear" | "both";
 export interface RackDeviceInfo {
   id: string; rackId: string; name: string; kind: RackKind; units: number; slot: number; face: RackFace; width: 19 | 10; color: string; ports: number; watts: number | null;
-  integrationId: string; notes: string; icon: string; iconRef: string; look: "drawn" | "image";
+  integrationId: string; notes: string; icon: string; iconRef: string; rearIcon: string; rearIconRef: string; fit: "stretch" | "fit" | "fill"; look: "drawn" | "image";
 }
 export interface RackInfo { id: string; name: string; units: number; width: 19 | 10; topDown: boolean; notes: string; position: number; devices: RackDeviceInfo[] }

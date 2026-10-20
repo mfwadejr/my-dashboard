@@ -39,6 +39,7 @@ export function referencedIcons(db: DB): Set<string> {
   for (const t of ["integrations", "cameras", "users", "api_tokens", "tabs", "rack_devices"]) {
     try { for (const r of db.prepare(`SELECT icon FROM ${t} WHERE icon <> ''`).all() as unknown as Array<{ icon: string }>) add(r.icon); } catch { /* an older layout has no icon column */ }
   }
+  try { for (const r of db.prepare("SELECT rear_icon FROM rack_devices WHERE rear_icon <> ''").all() as unknown as Array<{ rear_icon: string }>) add(r.rear_icon); } catch { /* an older layout has no rack pictures */ }
   try {
     for (const r of db.prepare("SELECT config FROM tiles").all() as unknown as Array<{ config: string }>) {
       try { const c = JSON.parse(r.config) as { icon?: string; items?: Array<{ icon?: string }> }; add(c.icon); if (Array.isArray(c.items)) for (const it of c.items) add(it?.icon); } catch { /* one damaged tile */ }

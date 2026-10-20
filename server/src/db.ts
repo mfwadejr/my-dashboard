@@ -173,6 +173,11 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX rack_devices_ix ON rack_devices(rack_id, slot);
   `,
+  /* 14: a rear picture and a fit choice for rack equipment */ `
+  ALTER TABLE rack_devices ADD COLUMN rear_icon TEXT NOT NULL DEFAULT '';
+  ALTER TABLE rack_devices ADD COLUMN rear_icon_ref TEXT NOT NULL DEFAULT '';
+  ALTER TABLE rack_devices ADD COLUMN fit TEXT NOT NULL DEFAULT 'stretch';
+  `,
 ];
 
 /** Exposed for tests that need to build an older database. */

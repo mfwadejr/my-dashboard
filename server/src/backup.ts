@@ -354,7 +354,7 @@ export function verifyJsonBackup(deps: Deps, raw: unknown, passphrase: string, s
     const note = (v: unknown) => { if (typeof v === "string" && v.startsWith("used/")) wanted.add(v.split("?")[0]); };
     for (const t of file.dashboard.tabs) { note(t.icon); for (const g of t.groups) for (const tile of g.tiles) { const c = tile.config as { icon?: string; items?: Array<{ icon?: string }> }; note(c.icon); for (const it of Array.isArray(c.items) ? c.items : []) note(it?.icon); } }
     for (const x of [...file.integrations, ...file.cameras]) note(x.icon);
-    for (const r of file.racks ?? []) for (const d of r.devices) note(d.icon);
+    for (const r of file.racks ?? []) for (const d of r.devices) { note(d.icon); note(d.rearIcon); }
     counts.icons = Object.keys(file.icons ?? {}).length;
     const missing = [...wanted].filter(n => !(file.icons ?? {})[n]);
     if (!wanted.size) add("icons", "Icons", "pass", "No saved icons are used.");

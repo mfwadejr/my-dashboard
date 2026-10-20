@@ -104,3 +104,59 @@ test("racks: order, device picture and backup round trip", async () => {
   await call("POST", "/api/backup/import", { file, mode: "merge" });
   assert.equal((await call("GET", "/api/racks")).json().items.filter((x: any) => x.id === a.id).length, 1);
 });
+
+// ---------------------------------------------------------------- pictures and the device library
+
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+const YAML = "manufacturer: Ubiquiti\nmodel: USW-Pro-24-PoE\nu_height: 1\nis_full_depth: false\ninterfaces:\n  - name: Port 1\n    type: 1000base-t\n  - name: Port 2\n    type: 1000base-t\n  - name: SFP 1\n    type: 10gbase-x-sfpp\nconsole-ports:\n  - name: Console\n";
+
+test("library: lists models, saves pictures as own copies, reads height and ports, and rear pictures are kept", async () => {
+  let hits: string[] = [];
+  const gh: Server = createServer((req, res) => {
+    hits.push(req.url ?? "");
+    const u = req.url ?? "";
+    const json = (v: unknown) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(v)); };
+    if (u === "/api/contents/elevation-images") return json([{ name: "Ubiquiti", type: "dir" }, { name: "Cisco", type: "dir" }, { name: "README.md", type: "file" }]);
+    if (u === "/api/contents/elevation-images/Ubiquiti") return json([{ name: "USW-Pro-24-PoE.front.png", type: "file" }, { name: "USW-Pro-24-PoE.rear.png", type: "file" }, { name: "UAP-AC-Pro.front.png", type: "file" }, { name: "notes.txt", type: "file" }]);
+    if (u.startsWith("/raw/elevation-images/Ubiquiti/") && u.endsWith(".png")) { res.writeHead(200, { "content-type": "image/png" }); return res.end(PNG); }
+    if (u === "/raw/device-types/Ubiquiti/USW-Pro-24-PoE.yaml") { res.writeHead(200); return res.end(YAML); }
+    res.writeHead(404); res.end();
+  });
+  await new Promise<void>(r => gh.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${(gh.address() as AddressInfo).port}`;
+  process.env.RACK_LIBRARY_API = `${base}/api`; process.env.RACK_LIBRARY_RAW = `${base}/raw`;
+  try {
+    const mf = (await call("GET", "/api/racks/library/manufacturers")).json().items;
+    assert.deepEqual(mf, ["Cisco", "Ubiquiti"]);
+    const all = (await call("GET", "/api/racks/library/models?manufacturer=Ubiquiti")).json().items;
+    assert.deepEqual(all.map((m: any) => m.id), ["UAP-AC-Pro", "USW-Pro-24-PoE"]);
+    const found = (await call("GET", "/api/racks/library/models?manufacturer=Ubiquiti&q=pro 24")).json().items;
+    assert.deepEqual(found.map((m: any) => m.id), ["USW-Pro-24-PoE"]);
+    assert.equal((await call("GET", "/api/racks/library/models?manufacturer=..%2F..")).statusCode, 400, "folder names are checked");
+    assert.equal((await call("GET", "/api/racks/library/manufacturers", undefined, viewer)).statusCode, 403);
+
+    const got = await call("POST", "/api/racks/library/import", { manufacturer: "Ubiquiti", model: "USW-Pro-24-PoE" });
+    assert.equal(got.statusCode, 200, got.body);
+    const b = got.json();
+    assert.deepEqual([b.name, b.units, b.fullDepth, b.ports], ["USW-Pro-24-PoE", 1, false, 3]);
+    assert.match(b.front.icon, /^used\//); assert.match(b.rear.icon, /^used\//);
+    assert.equal((await call("POST", "/api/racks/library/import", { manufacturer: "Ubiquiti", model: "Nope" })).statusCode, 400);
+    const front = (await call("GET", "/api/racks/library/models?manufacturer=Ubiquiti&q=uap")).json().items[0];
+    const onlyFront = (await call("POST", "/api/racks/library/import", { manufacturer: "Ubiquiti", model: front.id })).json();
+    assert.ok(onlyFront.front && onlyFront.rear === null && onlyFront.units === null, "a model without a rear picture or description still imports");
+    assert.ok(hits.filter(h => h === "/api/contents/elevation-images/Ubiquiti").length === 1, "listings are remembered");
+
+    // a device keeps both pictures and the fit choice, and they survive a backup
+    const r = await rack({ units: 12 });
+    const d = (await put(r.id, { name: "Switch", kind: "switch", units: 1, slot: 5, look: "image", icon: b.front.icon, rearIcon: b.rear.icon, fit: "fill" })).json();
+    assert.deepEqual([d.look, d.icon === b.front.icon, d.rearIcon === b.rear.icon, d.fit], ["image", true, true, "fill"]);
+    assert.equal((await call("PUT", `/api/racks/devices/${d.id}`, { fit: "weird" })).json().fit, "stretch");
+    const file = (await call("POST", "/api/backup/export", {})).json();
+    const inFile = file.racks.find((x: any) => x.id === r.id).devices[0];
+    assert.equal(inFile.rearIcon, b.rear.icon);
+    assert.ok(file.icons[b.rear.icon.split("?")[0]], "the rear picture travels inside the backup");
+  } finally { gh.close(); delete process.env.RACK_LIBRARY_API; delete process.env.RACK_LIBRARY_RAW; }
+});
