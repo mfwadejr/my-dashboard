@@ -170,7 +170,17 @@ dialog::backdrop{background:var(--scrim);backdrop-filter:blur(3px)}
 .picker{display:flex;flex-direction:column;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;min-width:0}
 .pick-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:center}
 .pick-row .pick-path{grid-column:1/-1}
-.pick-list{max-height:260px;overflow:auto}
+.pick-list{max-height:360px;overflow:auto}
+.tree{display:flex;flex-direction:column;gap:4px}
+.tnode>summary{display:flex;justify-content:space-between;align-items:center;gap:12px;cursor:pointer;list-style:none;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 10px}
+.tnode>summary::-webkit-details-marker{display:none}
+.tnode>summary::before{content:"▸";color:var(--mute);margin-right:6px}
+.tnode[open]>summary::before{content:"▾"}
+.tnode>summary .trunc{flex:1}
+.tnode>summary:hover{border-color:var(--accent)}
+.tnode.d1>summary,.tnode.d2>summary{background:transparent;border-color:transparent;padding:4px 8px}
+.tbody{display:flex;flex-direction:column;gap:4px;padding:4px 0 4px 14px}
+.tbody .tall{align-self:flex-start}
 .pick-list .li{gap:8px}
 .pick-list .f1{display:flex;flex-direction:column;min-width:0}
 .chk{display:flex;align-items:center;gap:8px;font-size:var(--fs-md)}

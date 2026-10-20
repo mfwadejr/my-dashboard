@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { api } from "../api";
 
 export interface PickedField { path: string; label: string; unit: string }
@@ -6,6 +6,7 @@ interface CatalogField { path: string; group: string; label: string; kind: strin
 
 const UNITS: Array<[string, string]> = [["auto", "Automatic"], ["number", "Number"], ["bytesps", "Bytes per second (as bits)"], ["bps", "Bits per second"], ["bytes", "Bytes (KB, MB, GB)"], ["percent", "Percent"], ["temp", "Temperature °C"], ["duration", "Time span (seconds)"], ["ms", "Milliseconds"], ["mbps", "Mbps"], ["dbm", "Signal dBm"], ["bool", "Yes / no"], ["text", "Text"]];
 const MAX = 60;
+interface Node { name: string; kids: Map<string, Node>; fields: CatalogField[]; total: number; chosen: number }
 
 /** A name that tells fields apart: nested ones (such as wan1 and wan2) get their section in front. */
 const nameOf = (f: CatalogField) => { const deeper = f.group.split(" › ").slice(2).join(" "); return (deeper ? `${deeper} ${f.label}` : f.label).slice(0, 60); };
@@ -35,7 +36,51 @@ export function FieldPicker({ selected, onChange, request, canLoad }: { selected
   };
 
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const matches = catalog ? catalog.filter(f => !chosen.has(f.path) && words.every(w => `${f.group} ${f.label} ${f.path}`.toLowerCase().includes(w))) : [];
+  const searching = words.length > 0;
+  const tree = useMemo(() => {
+    if (!catalog) return [];
+    const roots = new Map<string, Node>();
+    for (const f of catalog) {
+      const segs = f.group.split(" › ");
+      const top = segs.length > 1 ? segs.slice(0, 2).join(" › ") : segs[0];
+      const rest = segs.length > 1 ? segs.slice(2) : [];
+      let node: Node = roots.get(top) ?? { name: top, kids: new Map(), fields: [], total: 0, chosen: 0 };
+      roots.set(top, node);
+      const path = [node];
+      for (const part of rest) { const kid: Node = node.kids.get(part) ?? { name: part, kids: new Map(), fields: [], total: 0, chosen: 0 }; node.kids.set(part, kid); node = kid; path.push(node); }
+      if (chosen.has(f.path)) { for (const n of path) n.chosen++; continue; }
+      if (searching && !words.every(w => `${f.group} ${f.label} ${f.path}`.toLowerCase().includes(w))) continue;
+      node.fields.push(f);
+      for (const n of path) n.total++;
+    }
+    return [...roots.values()].filter(n => n.total > 0 || (!searching && n.chosen > 0));
+  }, [catalog, chosen, q]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleAll = (name: string) => setExpanded(prev => { const next = new Set(prev); if (next.has(name)) next.delete(name); else next.add(name); return next; });
+
+  const leaves = (n: Node) => (
+    <>
+      {n.fields.slice(0, 200).map(f => (
+        <div key={f.path} className="li">
+          <span className="f1"><span className="trunc">{f.label}</span></span>
+          <span className="sub">{shown(f.value)}</span>
+          <button type="button" className="btn sm" onClick={() => add(f)} disabled={selected.length >= MAX}>Add</button>
+        </div>
+      ))}
+      {n.fields.length > 200 && <div className="sub">Showing 200 of {n.fields.length}. Search to narrow the list.</div>}
+    </>
+  );
+  const branch = (n: Node, force: boolean, depth: number): ReactNode => (
+    <details key={`${n.name}${force}`} className={`tnode d${Math.min(depth, 2)}`} open={force || undefined}>
+      <summary><span className="trunc">{n.name}</span><span className="sub">{n.total} field{n.total === 1 ? "" : "s"}{n.chosen > 0 ? ` · ${n.chosen} chosen` : ""}</span></summary>
+      <div className="tbody">
+        {depth === 0 && !searching && n.total > 12 && <button type="button" className="btn sm tall" onClick={() => toggleAll(n.name)}>{expanded.has(n.name) ? "Collapse all" : "Expand all"}</button>}
+        {leaves(n)}
+        {[...n.kids.values()].filter(k => k.total > 0 || (!searching && k.chosen > 0)).map(k => branch(k, force, depth + 1))}
+      </div>
+    </details>
+  );
 
   return (
     <div className="picker">
@@ -63,16 +108,9 @@ export function FieldPicker({ selected, onChange, request, canLoad }: { selected
       {catalog && (
         <>
           <input type="search" value={q} placeholder={`Search ${catalog.length} fields (for example wan1, temperature, uplink)`} onChange={e => setQ(e.target.value)} aria-label="Search fields" />
-          <div className="list pick-list">
-            {matches.slice(0, 80).map(f => (
-              <div key={f.path} className="li">
-                <span className="f1"><span className="trunc">{f.label}</span><span className="sub trunc pick-path">{f.group}</span></span>
-                <span className="sub">{shown(f.value)}</span>
-                <button type="button" className="btn sm" onClick={() => add(f)} disabled={selected.length >= MAX}>Add</button>
-              </div>
-            ))}
-            {matches.length === 0 && <div className="empty-note">No fields match.</div>}
-            {matches.length > 80 && <div className="sub">Showing 80 of {matches.length}. Search to narrow the list.</div>}
+          <div className="tree pick-list">
+            {tree.map(n => branch(n, searching || expanded.has(n.name), 0))}
+            {tree.length === 0 && <div className="empty-note">No fields match.</div>}
           </div>
         </>
       )}
