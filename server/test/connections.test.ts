@@ -121,6 +121,7 @@ test("UniFi Network: WAN failover and health, field catalog, picked fields, live
   const live = (await call("GET", `/api/integrations/${id}/live?since=0`)).json();
   assert.equal(live.samples.at(-1).v.wan1_rx_bps, 8_000_000);
   assert.equal(live.samples.at(-1).v.wan2_tx_bps, 0);
+  assert.deepEqual([live.samples.at(-1).v.cpu_pct, live.samples.at(-1).v.mem_pct, live.samples.at(-1).v.temp_c, live.samples.at(-1).v.wan1_up, live.samples.at(-1).v.wan2_up], [12.5, 48.7, 61, 1, 0], "CPU, RAM, temperature and link state are live too");
 
   // Catalog is admin-only.
   const anon = await ctx.app.inject({ method: "POST", url: "/api/integrations/catalog", payload: { id }, headers: { "x-homebase": "1" } });

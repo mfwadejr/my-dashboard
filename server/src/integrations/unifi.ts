@@ -141,6 +141,9 @@ async function wanSample(ctx: Ctx): Promise<Record<string, number | null>> {
   if (!doc) throw new IntegrationError("The gateway did not answer the classic device request");
   const wans = extractWans(doc), out: Record<string, number | null> = {};
   wans.forEach((w, i) => { out[`wan${i + 1}_rx_bps`] = w.rxBps; out[`wan${i + 1}_tx_bps`] = w.txBps; });
+  const sys = doc["system-stats"] ?? {};
+  out.cpu_pct = firstNum(sys.cpu); out.mem_pct = firstNum(sys.mem); out.temp_c = extractTemp(doc); out.uptime_s = firstNum(sys.uptime, doc.uptime);
+  wans.forEach((w, i) => { out[`wan${i + 1}_up`] = w.up === null ? null : w.up ? 1 : 0; });
   out.rx_bps = wans.reduce<number | null>((a, w) => (w.rxBps === null ? a : (a ?? 0) + w.rxBps), null);
   out.tx_bps = wans.reduce<number | null>((a, w) => (w.txBps === null ? a : (a ?? 0) + w.txBps), null);
   return out;
@@ -453,7 +456,7 @@ export const unifiNetwork: IntegrationType = {
   urlHint: "https://192.168.1.1",
   keyLabel: "API key (UniFi Network → Settings → Control Plane → Integrations)",
   test: networkTest, poll: networkPoll,
-  live: { intervalMs: 3000, sample: wanSample },
+  live: { intervalMs: 2000, sample: wanSample },
   catalog: networkCatalog
 };
 

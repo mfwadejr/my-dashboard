@@ -355,8 +355,9 @@ body.light .ic-lucide{filter:invert(.85) hue-rotate(180deg)}
 .icon-choice small{font-size:var(--fs-xs);color:var(--mute)}
 
 /* open address, in-app viewer, search palette */
-.title-open{all:unset;cursor:pointer;margin-left:6px;color:var(--mute);font-size:var(--fs-md);line-height:1;padding:2px 4px;border-radius:var(--r-xs)}
-.title-open:hover,.title-open:focus-visible{color:var(--accent);background:var(--panel2)}
+.title-text{display:flex;align-items:center;min-width:0}
+.title-link{all:unset;cursor:pointer;display:flex;align-items:center;min-width:0;border-radius:var(--r-xs);padding:2px 4px;margin:-2px -4px}
+.title-link:hover,.title-link:focus-visible{color:var(--accent);background:var(--panel2)}
 button.search{cursor:pointer;font:inherit;text-align:left}button.search span{flex:1;color:var(--mute)}
 dialog.viewer{width:min(1400px,96vw);height:92vh;max-width:none;padding:0;border:1px solid var(--line);border-radius:var(--r-md);background:var(--panel);color:var(--text);overflow:hidden}
 dialog.viewer[open]{display:flex;flex-direction:column}

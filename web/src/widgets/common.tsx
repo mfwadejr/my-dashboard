@@ -8,7 +8,12 @@ export const initials = (name: string) => name.replace(/[^A-Za-z0-9 ]/g, " ").sp
 
 export function Title({ children, right }: { children: ReactNode; right?: ReactNode }) {
   const ti = useContext(TileIconContext);
-  return <h4>{ti?.icon ? <Icon icon={ti.icon} iconRef={ti.iconRef} size={16} className="title-ic" /> : null}{children}{ti?.open ? <button type="button" className="title-open" title={`Open ${ti.openName ?? "the app"}`} aria-label={`Open ${ti.openName ?? "the app"}`} onClick={e => { e.stopPropagation(); ti.open?.(); }}>↗</button> : null}{right ? <span className="right">{right}</span> : null}</h4>;
+  const head = <>{ti?.icon ? <Icon icon={ti.icon} iconRef={ti.iconRef} size={16} className="title-ic" /> : null}{children}</>;
+  // The icon and the title are one link to the app, so there is no separate button to find.
+  const left = ti?.open
+    ? <button type="button" className="title-link" title={`Open ${ti.openName ?? "the app"}`} aria-label={`Open ${ti.openName ?? "the app"}`} onClick={e => { e.stopPropagation(); ti.open?.(); }}>{head}</button>
+    : <span className="title-text">{head}</span>;
+  return <h4>{left}{right ? <span className="right">{right}</span> : null}</h4>;
 }
 
 export function Bar({ value, tone }: { value: number; tone?: "ok" | "warn" | "bad" }) {
