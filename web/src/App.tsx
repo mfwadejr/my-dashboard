@@ -32,7 +32,9 @@ const cloneTab = (tab: Tab, name: string): Tab => ({ ...tab, id: uid(), name, gr
 export function App() {
   const shareToken = /^\/s\/([A-Za-z0-9_-]{20,80})\/?$/.exec(window.location.pathname)?.[1];
   const statusToken = /^\/status\/([A-Za-z0-9_-]{20,80})\/?$/.exec(window.location.pathname)?.[1];
-  return statusToken ? <StatusView token={statusToken} /> : shareToken ? <ShareView token={shareToken} /> : <Gate />;
+  // On a domain that was given to a status page, the sharing port marks the front page so it shows that page.
+  const ownDomain = Boolean(document.querySelector('meta[name="hb-status-host"]'));
+  return ownDomain ? <StatusView token="_host" /> : statusToken ? <StatusView token={statusToken} /> : shareToken ? <ShareView token={shareToken} /> : <Gate />;
 }
 
 function Gate() {

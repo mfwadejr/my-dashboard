@@ -416,6 +416,8 @@ small{font-size:var(--fs-xs)}
 .statusfoot{text-align:center}
 .statusnote{margin:0;padding:10px 14px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--panel);font-size:var(--fs-md)}
 .statusnote.warn{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,var(--panel))}
+.statusnote.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--panel))}
+.statusnote.post{display:grid;gap:6px}.statusnote.post p{margin:0;white-space:pre-wrap}
 .statusnote.bad{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 14%,var(--panel))}
 .statusgroup{display:grid;gap:10px}.statusgroup h2{margin:0;font-size:var(--fs-lg)}
 .monpage{display:grid;gap:var(--gap)}
@@ -426,7 +428,9 @@ small{font-size:var(--fs-xs)}
 .mghead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;background:var(--panel2);border-bottom:1px solid var(--line)}
 .mglist{display:grid}
 .mitem{display:grid;grid-template-columns:10px minmax(0,1fr) 78px auto 64px 56px;align-items:center;gap:12px;width:100%;padding:10px 14px;background:none;border:0;border-bottom:1px solid var(--line);border-radius:0;text-align:left;color:inherit;cursor:pointer}
-.mitem:last-child{border-bottom:0}.mitem:hover{background:var(--panel2)}
+.mitem:last-child{border-bottom:0}
+.mitem.d1{padding-left:36px}.mitem.d2{padding-left:58px}.mitem.d3{padding-left:80px}.mitem.d4{padding-left:102px}
+.mitem.isgroup{background:var(--panel2)}.mitem.isgroup:hover{background:var(--panel)}.mitem:hover{background:var(--panel2)}
 .mname{display:grid;min-width:0}.mname .sub{font-size:var(--fs-sm)}
 .mkind{text-align:right;font-size:var(--fs-sm)}
 .mstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
@@ -434,5 +438,5 @@ small{font-size:var(--fs-xs)}
 .mchart{width:100%;height:auto;display:block;background:var(--panel2);border:1px solid var(--line);border-radius:var(--r-md)}
 .mchart text{fill:var(--mute);font-size:10px}.mchart .grid{stroke:var(--line);stroke-width:1}
 .mchart .line{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round}.mchart .dot{fill:var(--accent)}.mchart .down{fill:color-mix(in srgb,var(--bad) 30%,transparent)}
-.mghead-sm{font-size:var(--fs-sm)}.mrow.indent{padding-left:18px}
+.mghead-sm{font-size:var(--fs-sm)}.mrow.indent{padding-left:18px}.mrow.deeper{padding-left:36px}
 @media(max-width:700px){.mdays{height:22px}.mitem{grid-template-columns:10px minmax(0,1fr) 60px 50px}.mitem .mkind,.mitem .mstrip{display:none}}

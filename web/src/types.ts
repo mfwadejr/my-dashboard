@@ -28,14 +28,14 @@ export interface VerifyCheck { id: string; label: string; status: "pass" | "warn
 export interface VerifyReport { kind: "database" | "json" | "complete"; ok: boolean; restorable: boolean; checks: VerifyCheck[]; counts: Record<string, number>; size: number; createdAt: number | null; layout: number | null; summary: string }
 
 export type MonitorState = "up" | "down" | "pending" | "paused" | "maintenance" | "unknown";
-export type MonitorKind = "http" | "keyword" | "json" | "tcp" | "ping" | "dns" | "cert" | "push";
+export type MonitorKind = "http" | "keyword" | "json" | "tcp" | "ping" | "dns" | "cert" | "push" | "docker" | "postgres" | "mysql" | "mongodb" | "redis" | "mssql" | "group";
 export interface MonitorConfigInfo {
   id: string; name: string; group: string; description: string; kind: MonitorKind; target: string; port: number; keyword: string; invert: boolean; jsonPath: string; expect: string;
-  method: string; body: string; headers: string; authUser: string; hasAuthPass: boolean; maxRedirects: number; upsideDown: boolean; dnsType: string; dnsServer: string;
+  method: string; body: string; headers: string; authUser: string; hasAuthPass: boolean; hasConn: boolean; parentId: string; maxRedirects: number; upsideDown: boolean; dnsType: string; dnsServer: string;
   intervalSeconds: number; retryIntervalSeconds: number; timeoutSeconds: number; retries: number; insecureTls: boolean; certWarnDays: number; enabled: boolean; position: number;
 }
 export interface MonitorInfo {
-  id: string; name: string; group: string; description: string; kind: MonitorKind; enabled: boolean; state: MonitorState; since: number | null; lastAt: number | null; lastMs: number | null; message: string;
+  id: string; name: string; group: string; parentId: string; description: string; kind: MonitorKind; enabled: boolean; state: MonitorState; since: number | null; lastAt: number | null; lastMs: number | null; message: string;
   uptime24h: number | null; uptime7d: number | null; uptime30d: number | null; avgMs24h: number | null; certExpires: number | null; strip: Array<0 | 1 | 2 | 3>; config?: MonitorConfigInfo;
 }
 export interface MonitorHistory {
@@ -46,8 +46,11 @@ export interface MaintenanceWindow {
   id: string; title: string; monitors: string[]; kind: "once" | "daily" | "weekly"; startsAt: number | null; endsAt: number | null; days: number[]; startTime: string; durationMin: number; enabled: boolean;
 }
 export interface DayBar { day: number; up: number; down: number }
-export interface StatusPageInfo { id: string; title: string; message: string; tone: "info" | "warn" | "bad"; monitors: string[]; enabled: boolean; views: number; lastUsed: number | null; createdAt: number; token: string; path: string }
+export interface StatusPageInfo { id: string; title: string; message: string; tone: "info" | "warn" | "bad"; domain: string; monitors: string[]; enabled: boolean; views: number; lastUsed: number | null; createdAt: number; token: string; path: string }
+export interface IncidentPost { id: string; pageId: string; title: string; body: string; style: "info" | "warn" | "bad" | "ok"; pinned: boolean; resolvedAt: number | null; createdAt: number; updatedAt: number }
+export interface PublicIncident { id: string; title: string; body: string; style: "info" | "warn" | "bad" | "ok"; pinned: boolean; resolved: boolean; createdAt: number; updatedAt: number }
+export interface PublicMaintenance { title: string; active: boolean; kind: "once" | "daily" | "weekly"; startsAt: number | null; endsAt: number | null; days: number[]; startTime: string; durationMin: number }
 export interface PublicStatus {
-  title: string; message: string; tone: "info" | "warn" | "bad"; overall: "up" | "degraded" | "down" | "maintenance" | "unknown"; updatedAt: number;
+  title: string; message: string; tone: "info" | "warn" | "bad"; overall: "up" | "degraded" | "down" | "maintenance" | "unknown"; updatedAt: number; timezone: string; incidents: PublicIncident[]; maintenance: PublicMaintenance[];
   monitors: Array<{ name: string; group: string; state: MonitorState; uptime24h: number | null; uptime30d: number | null; ms: number | null; days: DayBar[] }>;
 }

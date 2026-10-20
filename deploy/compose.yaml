@@ -26,6 +26,12 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./homebase/data:/data
+      # Optional, for Docker container monitors: lets Homebase ask Docker whether a container is running.
+      # This gives the container control over Docker on this machine, so only turn it on if you trust everything that can sign in.
+      # - /var/run/docker.sock:/var/run/docker.sock
+    # With the line above, also give the container permission to use the socket (find the number with: stat -c %g /var/run/docker.sock):
+    # group_add:
+    #   - "999"
     depends_on:
       - go2rtc
     labels:

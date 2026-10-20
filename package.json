@@ -23,9 +23,14 @@
     "@fastify/multipart": "^10.1.4",
     "@fastify/static": "^10.1.6",
     "fastify": "^5.12.7",
+    "mongodb": "^7.7.0",
+    "mssql": "^12.7.10",
+    "mysql2": "^3.24.6",
+    "pg": "^8.23.1",
     "qrcode-generator": "^2.0.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "redis": "^6.3.0",
     "ssh2": "^1.17.0"
   },
   "devDependencies": {

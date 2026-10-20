@@ -8,6 +8,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildApp } from "../src/index.js";
+import { buildPublicApp } from "../src/public.js";
 import { selfSigned } from "./mocks2.js";
 
 process.env.NODE_ENV = "test";
@@ -294,4 +295,202 @@ test("ping and certificate monitors give plain answers", async () => {
   assert.equal(cert.up, true, "about two days remain and the warning is at one");
   const soon = (await call("POST", "/api/monitors/test", { kind: "cert", target: "127.0.0.1", port: Number(new URL(secureUrl).port), insecureTls: true, certWarnDays: 30 })).json();
   assert.equal(soon.up, false); assert.match(soon.message, /ends in/);
+});
+
+// ---------------------------------------------------------------- update46
+
+import { spawn, type ChildProcess } from "node:child_process";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { connect as netConnect } from "node:net";
+
+const waitPort = async (port: number) => { for (let i = 0; i < 60; i++) { const ok = await new Promise<boolean>(r => { const s = netConnect(port, "127.0.0.1"); s.once("connect", () => { s.destroy(); r(true); }); s.once("error", () => r(false)); }); if (ok) return; await new Promise(r => setTimeout(r, 100)); } throw new Error("port never opened"); };
+const state = async (id: string) => (await call("POST", `/api/monitors/${id}/check`)).json();
+
+test("docker monitors read the container's state from the Docker socket", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hb-docker-")), sock = join(dir, "docker.sock");
+  const boxes: Record<string, object> = {
+    plex: { State: { Status: "running", Running: true } },
+    sick: { State: { Status: "running", Running: true, Health: { Status: "unhealthy" } } },
+    well: { State: { Status: "running", Running: true, Health: { Status: "healthy" } } },
+    off: { State: { Status: "exited", Running: false } }
+  };
+  const docker = httpServer((req, res) => {
+    const name = decodeURIComponent((req.url ?? "").split("/")[2] ?? "");
+    if (boxes[name]) { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(boxes[name])); }
+    res.writeHead(404); res.end("{}");
+  });
+  await new Promise<void>(r => docker.listen(sock, r));
+  process.env.DOCKER_SOCKET = sock;
+  try {
+    const mk = async (target: string) => (await call("POST", "/api/monitors", { kind: "docker", target, retries: 0 })).json();
+    assert.equal((await call("POST", "/api/monitors", { kind: "docker", target: "bad name!" })).statusCode, 400);
+    assert.equal((await state((await mk("plex")).id)).up, true);
+    const well = await state((await mk("well")).id); assert.equal(well.up, true); assert.match(well.message, /healthy/);
+    const sick = await state((await mk("sick")).id); assert.equal(sick.up, false); assert.match(sick.message, /unhealthy/);
+    const off = await state((await mk("off")).id); assert.equal(off.up, false); assert.match(off.message, /exited/);
+    const gone = await state((await mk("nope")).id); assert.equal(gone.up, false); assert.match(gone.message, /No container named "nope"/);
+  } finally { docker.close(); rmSync(dir, { recursive: true, force: true }); }
+  process.env.DOCKER_SOCKET = join(tmpdir(), "no-such-docker.sock");
+  const none = (await call("POST", "/api/monitors/test", { kind: "docker", target: "plex" })).json();
+  assert.equal(none.up, false); assert.match(none.message, /mount \/var\/run\/docker\.sock/);
+  delete process.env.DOCKER_SOCKET;
+});
+
+test("database monitors: connection strings are checked, kept secret, and a real Redis answers", async () => {
+  const bad = async (kind: string, conn: string) => (await call("POST", "/api/monitors", { kind, conn })).statusCode;
+  assert.equal(await bad("postgres", "mysql://u:p@h/db"), 400);
+  assert.equal(await bad("mysql", "nonsense"), 400);
+  assert.equal(await bad("mongodb", "http://x"), 400);
+  assert.equal(await bad("redis", "postgres://x"), 400);
+  assert.equal(await bad("mssql", "postgres://x"), 400);
+  assert.equal(await bad("postgres", ""), 400, "a connection string is required");
+  const port = await closedPort();
+  const secret = "hunter2-secret";
+  const strings: Record<string, string> = {
+    postgres: `postgres://app:${secret}@127.0.0.1:${port}/data`, mysql: `mysql://app:${secret}@127.0.0.1:${port}/data`,
+    mongodb: `mongodb://app:${secret}@127.0.0.1:${port}/data`, redis: `redis://:${secret}@127.0.0.1:${port}`, mssql: `Server=127.0.0.1,${port};Database=data;User Id=app;Password=${secret};Encrypt=false`
+  };
+  for (const [kind, conn] of Object.entries(strings)) {
+    const m = (await call("POST", "/api/monitors", { name: `db-${kind}`, kind, conn, retries: 0, timeoutSeconds: 2 })).json();
+    assert.equal(m.hasConn, true); assert.ok(!JSON.stringify(m).includes(secret), "the connection string never leaves the server");
+    assert.ok(!m.target.includes(secret) && m.target.includes("127.0.0.1"), `${kind} shows only the address: ${m.target}`);
+    const r = await state(m.id);
+    assert.equal(r.up, false, `${kind} is down when nothing listens`);
+    assert.ok(!r.message.includes(secret), `${kind}: the error text hides the password (${r.message})`);
+    assert.ok(!JSON.stringify(await view(m.id)).includes(secret));
+    const row = ctx.db.prepare("SELECT secret FROM monitors WHERE id = ?").get(m.id) as any;
+    assert.ok(row.secret && !row.secret.includes(secret), "stored encrypted");
+    // Editing without a new connection string keeps the saved one.
+    const kept = (await call("PUT", `/api/monitors/${m.id}`, { name: `db-${kind} renamed` })).json();
+    assert.equal(kept.hasConn, true);
+  }
+  const exp = (await call("POST", "/api/backup/export", {})).json();
+  assert.ok(!JSON.stringify(exp.monitors).includes(secret));
+  assert.ok(exp.monitors.filter((m: any) => String(m.name).startsWith("db-")).every((m: any) => m.secretsOmitted));
+
+  // A real Redis, when this machine has one.
+  let redis: ChildProcess | undefined;
+  const rport = await closedPort();
+  try {
+    redis = spawn("redis-server", ["--port", String(rport), "--bind", "127.0.0.1", "--save", "", "--appendonly", "no", "--requirepass", "right-pass"], { stdio: "ignore" });
+    const started = await new Promise<boolean>(r => { redis!.once("error", () => r(false)); waitPort(rport).then(() => r(true), () => r(false)); });
+    if (started) {
+      const ok = (await call("POST", "/api/monitors", { name: "Redis", kind: "redis", conn: `redis://:right-pass@127.0.0.1:${rport}`, retries: 0 })).json();
+      const up = await state(ok.id); assert.equal(up.up, true, up.message); assert.match(up.message, /PONG/);
+      const wrong = (await call("POST", "/api/monitors", { name: "Redis wrong pw", kind: "redis", conn: `redis://:nope-wrong@127.0.0.1:${rport}`, retries: 0 })).json();
+      const down = await state(wrong.id); assert.equal(down.up, false); assert.ok(!down.message.includes("nope-wrong"));
+    }
+  } finally { redis?.kill(); }
+});
+
+test("group monitors take their state from what is inside them, can be nested, and cannot loop", async () => {
+  const mk = async (b: object) => (await call("POST", "/api/monitors", { retries: 0, ...b })).json();
+  const open = (n: string, parentId = "") => mk({ name: n, kind: "tcp", target: "127.0.0.1", port: tcpPort, parentId });
+  const shut = async (n: string, parentId = "") => mk({ name: n, kind: "tcp", target: "127.0.0.1", port: await closedPort(), parentId });
+  const arrs = await mk({ name: "Arrs", kind: "group" });
+  assert.equal(arrs.kind, "group");
+  assert.equal((await state(arrs.id)).message, "No monitors in this group yet");
+  const a = await open("Sonarr", arrs.id), b = await shut("Radarr", arrs.id);
+  assert.equal(a.parentId, arrs.id);
+  await state(a.id); await state(b.id);
+  const g = await state(arrs.id);
+  assert.equal(g.state, "down"); assert.match(g.message, /^1 of 2 down: Radarr/);
+  assert.ok((ctx.db.prepare("SELECT COUNT(*) AS n FROM events WHERE message LIKE 'Arrs is down:%'").get() as any).n >= 1, "a group going down is logged like any monitor");
+  await call("PUT", `/api/monitors/${b.id}`, { enabled: false });
+  assert.equal((await state(arrs.id)).state, "up", "paused monitors do not count");
+  await call("PUT", `/api/monitors/${b.id}`, { enabled: true });
+  // nesting
+  const media = await mk({ name: "Media", kind: "group" });
+  assert.equal((await call("PUT", `/api/monitors/${arrs.id}`, { parentId: media.id })).json().parentId, media.id);
+  assert.equal((await state(media.id)).state, "down", "a group inside a group still counts");
+  // loops and wrong parents are refused
+  assert.equal((await call("PUT", `/api/monitors/${media.id}`, { parentId: arrs.id })).statusCode, 400);
+  assert.equal((await call("PUT", `/api/monitors/${media.id}`, { parentId: media.id })).statusCode, 400);
+  assert.equal((await call("PUT", `/api/monitors/${a.id}`, { parentId: b.id })).statusCode, 400, "only a group can hold monitors");
+  assert.equal((await call("POST", "/api/monitors", { kind: "tcp", target: "127.0.0.1", port: 80, parentId: "nope" })).statusCode, 400);
+  // bulk pause reaches children through the page, and removing a group frees what was inside
+  assert.equal((await call("DELETE", `/api/monitors/${arrs.id}`)).statusCode, 200);
+  assert.equal((await view(a.id)).parentId, "");
+  // a backup keeps the structure
+  const file = (await call("POST", "/api/backup/export", {})).json();
+  const media2 = file.monitors.find((m: any) => m.id === media.id);
+  assert.equal(media2.kind, "group");
+});
+
+test("status pages: custom domain, incident posts, maintenance, badges and RSS", async () => {
+  const mons = ((await call("GET", "/api/monitors")).json().items as any[]).filter(m => m.kind === "tcp").slice(0, 2);
+  const ids = mons.map(m => m.id);
+  assert.equal((await call("POST", "/api/status-pages", { title: "Bad", monitors: ids, domain: "not a domain" })).statusCode, 400);
+  const page = (await call("POST", "/api/status-pages", { title: "Lab", monitors: ids, domain: "https://Status.Example.com/" })).json();
+  assert.equal(page.domain, "status.example.com");
+  assert.equal((await call("POST", "/api/status-pages", { title: "Dup", monitors: ids, domain: "status.example.com" })).statusCode, 400);
+
+  // The sharing port answers on that domain, and only on it.
+  const idx = mkdtempSync(join(tmpdir(), "hb-web-")); writeFileSync(join(idx, "index.html"), "<!doctype html><html><head><title>x</title></head><body></body></html>");
+  const was = ctx.deps.config.webDir; ctx.deps.config.webDir = idx;
+  const pubApp = await buildPublicApp(ctx.deps);
+  try {
+    const pub = (url: string, host: string) => pubApp.inject({ method: "GET", url, headers: { host } });
+    const home = await pub("/", "status.example.com:3001");
+    assert.equal(home.statusCode, 200); assert.match(home.body, /hb-status-host/);
+    assert.equal((await pub("/", "other.example.com")).statusCode, 404, "other hosts still get nothing at the front page");
+    const view = await pub("/api/status/_host", "status.example.com");
+    assert.equal(view.statusCode, 200); assert.equal(view.json().title, "Lab");
+    assert.equal((await pub("/api/status/_host", "other.example.com")).statusCode, 404);
+    assert.equal((await pub("/api/status/_host/rss", "status.example.com")).statusCode, 200);
+  } finally { await pubApp.close(); ctx.deps.config.webDir = was; rmSync(idx, { recursive: true, force: true }); }
+
+  // incident posts
+  assert.equal((await call("POST", `/api/status-pages/${page.id}/incidents`, { title: "x" }, viewer)).statusCode, 403);
+  assert.equal((await call("POST", `/api/status-pages/${page.id}/incidents`, { title: "" })).statusCode, 400);
+  const inc = (await call("POST", `/api/status-pages/${page.id}/incidents`, { title: "Disk swap", body: "Investigating", style: "warn" })).json();
+  assert.equal(inc.style, "warn"); assert.equal(inc.pinned, true);
+  const upd = (await call("PUT", `/api/status-incidents/${inc.id}`, { body: "Fixed, watching", style: "bad" })).json();
+  assert.equal(upd.body, "Fixed, watching"); assert.ok(upd.updatedAt >= inc.updatedAt);
+  let pub = (await raw("GET", `/api/status/${page.token}`)).json();
+  assert.equal(pub.incidents.length, 1); assert.equal(pub.incidents[0].resolved, false);
+  const done = (await call("PUT", `/api/status-incidents/${inc.id}`, { resolved: true })).json();
+  assert.ok(done.resolvedAt);
+  pub = (await raw("GET", `/api/status/${page.token}`)).json();
+  assert.equal(pub.incidents[0].resolved, true, "a resolved post stays visible for a while");
+  ctx.db.prepare("UPDATE status_incidents SET resolved_at = ? WHERE id = ?").run(Date.now() - 20 * 86400_000, inc.id);
+  assert.equal(((await raw("GET", `/api/status/${page.token}`)).json()).incidents.length, 0, "and then drops off the page");
+  await call("PUT", `/api/status-incidents/${inc.id}`, { resolved: false, title: "Disk swap again" });
+
+  // maintenance windows show on the page
+  await call("POST", "/api/maintenance-windows", { title: "Router firmware", kind: "once", monitors: [ids[0]], startsAt: Date.now() - 1000, endsAt: Date.now() + 3600_000 });
+  const other = ((await call("GET", "/api/monitors")).json().items as any[]).find(m => !ids.includes(m.id)).id;
+  assert.equal((await call("POST", "/api/maintenance-windows", { title: "Ghost", kind: "once", monitors: ["m-gone"], startsAt: Date.now(), endsAt: Date.now() + 1000 })).statusCode, 400);
+  await call("POST", "/api/maintenance-windows", { title: "Elsewhere", kind: "once", monitors: [other], startsAt: Date.now() - 1000, endsAt: Date.now() + 3600_000 });
+  pub = (await raw("GET", `/api/status/${page.token}`)).json();
+  const titles = pub.maintenance.map((w: any) => w.title);
+  assert.ok(titles.includes("Router firmware") && !titles.includes("Elsewhere"));
+  assert.equal(pub.maintenance.find((w: any) => w.title === "Router firmware").active, true);
+  assert.ok(!/target|config|conn/.test(Object.keys(pub.monitors[0]).join()), "still no addresses");
+
+  // badges and RSS
+  const badge = await raw("GET", `/api/status/${page.token}/badge`);
+  assert.equal(badge.statusCode, 200); assert.match(badge.headers["content-type"] as string, /image\/svg\+xml/); assert.match(badge.body, /<svg/);
+  const mb = await raw("GET", `/api/status/${page.token}/badge/1?type=uptime&label=Lab%20%3Cb%3E`);
+  assert.equal(mb.statusCode, 200); assert.match(mb.body, /Lab &lt;b&gt;/, "labels are escaped");
+  assert.equal((await raw("GET", `/api/status/${page.token}/badge/1?type=ping`)).statusCode, 200);
+  assert.equal((await raw("GET", `/api/status/${page.token}/badge/99`)).statusCode, 404);
+  assert.equal((await raw("GET", `/api/status/${"x".repeat(32)}/badge`)).statusCode, 404);
+  const rss = await raw("GET", `/api/status/${page.token}/rss`);
+  assert.equal(rss.statusCode, 200); assert.match(rss.headers["content-type"] as string, /rss\+xml/);
+  assert.match(rss.body, /<item><title>Disk swap again<\/title>/);
+  await call("PUT", `/api/status-pages/${page.id}`, { enabled: false });
+  assert.equal((await raw("GET", `/api/status/${page.token}/rss`)).statusCode, 404, "switched off");
+  await call("PUT", `/api/status-pages/${page.id}`, { enabled: true });
+
+  // backup keeps the domain and the posts
+  const file = (await call("POST", "/api/backup/export", {})).json();
+  const fp = file.statusPages.find((p: any) => p.id === page.id);
+  assert.equal(fp.domain, "status.example.com"); assert.equal(fp.incidents[0].title, "Disk swap again");
+  const res = (await call("POST", "/api/backup/import", { file, mode: "replace" })).json().result;
+  assert.ok(res.needsSecrets.some((t: string) => /monitor password|monitor/.test(t)), "database monitors need their connection strings again");
+  const pages = (await call("GET", "/api/status-pages")).json().items as any[];
+  const back = pages.find(p => p.title === "Lab");
+  assert.equal(back.domain, "status.example.com");
+  assert.equal(((await call("GET", `/api/status-pages/${back.id}/incidents`)).json().items as any[])[0].title, "Disk swap again");
 });

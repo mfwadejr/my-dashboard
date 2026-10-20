@@ -10,30 +10,33 @@ import type { SecretBox } from "./crypto.js";
 import { ValidationError } from "./dashboard.js";
 import { logEvent, type DB } from "./db.js";
 import { getSettings } from "./settings.js";
+import { badgeSvg, rssXml } from "./statusfeeds.js";
+import { CONTAINER_NAME, DB_KINDS, DEFAULT_QUERY, checkConn, dbCheck, dockerCheck, describeConn, type DbKind } from "./dbchecks.js";
 
 // ================================================================ shapes
 
-export type MonitorKind = "http" | "keyword" | "json" | "tcp" | "ping" | "dns" | "cert" | "push";
-export const MONITOR_KINDS: readonly MonitorKind[] = ["http", "keyword", "json", "tcp", "ping", "dns", "cert", "push"];
+export type MonitorKind = "http" | "keyword" | "json" | "tcp" | "ping" | "dns" | "cert" | "push" | "docker" | "postgres" | "mysql" | "mongodb" | "redis" | "mssql" | "group";
+export const MONITOR_KINDS: readonly MonitorKind[] = ["http", "keyword", "json", "tcp", "ping", "dns", "cert", "push", "docker", "postgres", "mysql", "mongodb", "redis", "mssql", "group"];
+const isDbKind = (k: string): k is DbKind => (DB_KINDS as readonly string[]).includes(k);
 const WEB: readonly MonitorKind[] = ["http", "keyword", "json"];
 export type MonitorState = "up" | "down" | "pending" | "paused" | "maintenance" | "unknown";
 const METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] as const;
 
 export interface MonitorConfig {
   id: string; name: string; group: string; description: string; kind: MonitorKind; target: string; port: number;
-  keyword: string; invert: boolean; jsonPath: string; expect: string; method: string; body: string; headers: string; authUser: string; hasAuthPass: boolean;
+  keyword: string; invert: boolean; jsonPath: string; expect: string; method: string; body: string; headers: string; authUser: string; hasAuthPass: boolean; hasConn: boolean; parentId: string;
   maxRedirects: number; upsideDown: boolean; dnsType: string; dnsServer: string;
   intervalSeconds: number; retryIntervalSeconds: number; timeoutSeconds: number; retries: number; insecureTls: boolean; certWarnDays: number; enabled: boolean; position: number;
 }
 /** What a check needs to run: the saved settings plus the password, which is never sent to a browser. */
-export type Spec = MonitorConfig & { authPass: string };
+export type Spec = MonitorConfig & { authPass: string; conn: string };
 
 interface Raw {
   id: string; name: string; group_name: string; description: string; kind: string; target: string; port: number; keyword: string; invert: number; json_path: string; expect: string;
   method: string; body: string; auth_user: string; secret: string; max_redirects: number; upside_down: number; dns_type: string; dns_server: string;
-  interval_s: number; retry_s: number; timeout_s: number; retries: number; insecure_tls: number; cert_warn_days: number; enabled: number; position: number; cert_expires: number | null; created_at: number;
+  interval_s: number; retry_s: number; timeout_s: number; retries: number; insecure_tls: number; cert_warn_days: number; enabled: number; position: number; cert_expires: number | null; created_at: number; parent_id: string;
 }
-const COLS = "id, name, group_name, description, kind, target, port, keyword, invert, json_path, expect, method, body, auth_user, secret, max_redirects, upside_down, dns_type, dns_server, interval_s, retry_s, timeout_s, retries, insecure_tls, cert_warn_days, enabled, position, cert_expires, created_at";
+const COLS = "id, name, group_name, description, kind, target, port, keyword, invert, json_path, expect, method, body, auth_user, secret, max_redirects, upside_down, dns_type, dns_server, interval_s, retry_s, timeout_s, retries, insecure_tls, cert_warn_days, enabled, position, cert_expires, created_at, parent_id";
 
 export interface CheckResult { up: boolean; ms: number | null; message: string; certExpires?: number | null }
 
@@ -54,13 +57,27 @@ function cleanHeaders(text: string): string {
 }
 
 /** Turns what the form sent into a checked monitor, or says in plain words what is wrong. `authPass` is undefined when the form left it blank. */
-export function cleanMonitor(body: any, keep?: MonitorConfig): Omit<Spec, "id" | "position" | "hasAuthPass" | "authPass"> & { authPass: string | undefined } {
+export function cleanMonitor(body: any, keep?: MonitorConfig, lenient = false): Omit<Spec, "id" | "position" | "hasAuthPass" | "authPass" | "hasConn" | "conn"> & { authPass: string | undefined; conn: string | undefined } {
   const b = body ?? {};
   const kind = String(b.kind ?? keep?.kind ?? "http") as MonitorKind;
   if (!MONITOR_KINDS.includes(kind)) throw new ValidationError("Choose what to check");
   const web = WEB.includes(kind);
-  let target = String(b.target ?? "").trim(), port = 0;
-  if (web) {
+  let target = String(b.target ?? "").trim(), port = 0, conn: string | undefined;
+  const db = isDbKind(kind);
+  if (kind === "group") {
+    target = "";
+  } else if (kind === "docker") {
+    if (!CONTAINER_NAME.test(target)) throw new ValidationError("Enter the container's name, for example plex or sonarr");
+  } else if (db) {
+    conn = typeof b.conn === "string" && b.conn.trim() !== "" ? b.conn.trim() : undefined;
+    if (conn !== undefined) {
+      const why = checkConn(kind, conn);
+      if (why) throw new ValidationError(why);
+      target = describeConn(kind, conn);
+    } else if (keep && keep.kind === kind) target = keep.target;
+    else if (lenient) target = kind;
+    else throw new ValidationError("Enter a connection string");
+  } else if (web) {
     let u: URL;
     try { u = new URL(target); } catch { throw new ValidationError("Enter a full address such as https://example.com"); }
     if (u.protocol !== "http:" && u.protocol !== "https:") throw new ValidationError("The address must start with http:// or https://");
@@ -87,13 +104,13 @@ export function cleanMonitor(body: any, keep?: MonitorConfig): Omit<Spec, "id" |
   const dnsServer = String(b.dnsServer ?? "").trim();
   if (dnsServer && !/^[0-9a-fA-F:.]{3,45}$/.test(dnsServer)) throw new ValidationError("A DNS server is given as an IP address, for example 192.168.1.1");
   const group = String(b.group ?? "").trim().slice(0, 40), description = String(b.description ?? "").trim().slice(0, 200);
-  const name = String(b.name ?? "").trim() || (web ? new URL(target).host : kind === "push" ? "Heartbeat" : kind === "tcp" || kind === "cert" ? `${target}:${port}` : target);
+  const name = String(b.name ?? "").trim() || (kind === "group" ? "Group" : kind === "docker" || db ? target : web ? new URL(target).host : kind === "push" ? "Heartbeat" : kind === "tcp" || kind === "cert" ? `${target}:${port}` : target);
   if (name.length > 60) throw new ValidationError("The name is too long (60 characters at most)");
   const intervalSeconds = int(b.intervalSeconds, 20, 86400, keep?.intervalSeconds ?? 60);
   const method = METHODS.includes(String(b.method).toUpperCase() as never) ? String(b.method).toUpperCase() : "GET";
   const headers = web ? cleanHeaders(String(b.headers ?? "")) : "";
   if (headers.length > 2000) throw new ValidationError("The request headers are too long");
-  const reqBody = web ? String(b.body ?? "").slice(0, 4000) : "";
+  const reqBody = web ? String(b.body ?? "").slice(0, 4000) : db ? String(b.body ?? "").trim().slice(0, 500) : "";
   const authUser = web ? String(b.authUser ?? "").trim().slice(0, 100) : "";
   const authPass = !authUser ? "" : typeof b.authPass === "string" && b.authPass !== "" ? b.authPass.slice(0, 200) : undefined;
   return {
@@ -102,8 +119,9 @@ export function cleanMonitor(body: any, keep?: MonitorConfig): Omit<Spec, "id" |
     maxRedirects: int(b.maxRedirects, 0, 10, keep?.maxRedirects ?? 5), upsideDown: Boolean(b.upsideDown),
     dnsType: kind === "dns" ? dnsType : "A", dnsServer: kind === "dns" ? dnsServer : "",
     intervalSeconds, retryIntervalSeconds: int(b.retryIntervalSeconds, 20, 86400, keep?.retryIntervalSeconds ?? 20), timeoutSeconds: Math.min(int(b.timeoutSeconds, 1, 60, keep?.timeoutSeconds ?? 10), intervalSeconds),
-    retries: int(b.retries, 0, 10, keep?.retries ?? 1), insecureTls: web && Boolean(b.insecureTls), certWarnDays: int(b.certWarnDays, 0, 365, keep?.certWarnDays ?? 14),
-    enabled: b.enabled === undefined ? (keep?.enabled ?? true) : Boolean(b.enabled)
+    retries: kind === "group" ? 0 : int(b.retries, 0, 10, keep?.retries ?? 1), insecureTls: (web || db) && Boolean(b.insecureTls), certWarnDays: int(b.certWarnDays, 0, 365, keep?.certWarnDays ?? 14),
+    enabled: b.enabled === undefined ? (keep?.enabled ?? true) : Boolean(b.enabled),
+    conn, parentId: String(b.parentId ?? "").slice(0, 40)
   };
 }
 
@@ -272,6 +290,9 @@ export async function runCheck(m: Spec): Promise<CheckResult> {
     else if (m.kind === "cert") r = await certCheck(m.target, m.port, m.certWarnDays, m.timeoutSeconds);
     else if (m.kind === "dns") r = await dnsCheck(m);
     else if (m.kind === "push") r = { up: true, ms: null, message: "Waiting for a heartbeat" };
+    else if (m.kind === "group") r = { up: true, ms: null, message: "A group takes its state from the monitors inside it" };
+    else if (m.kind === "docker") r = await dockerCheck(m.target, m.timeoutSeconds);
+    else if (isDbKind(m.kind)) r = await dbCheck(m.kind, m.conn, m.body, m.timeoutSeconds, m.insecureTls);
     else r = await httpCheck(m);
     // "Upside down" counts a reachable target as a failure, for things that must NOT answer.
     return m.upsideDown ? { ...r, up: !r.up, message: `${r.up ? "Answered, but should not" : "No answer, as wanted"} (${r.message})` } : r;
@@ -308,7 +329,10 @@ export class Windows {
     const kind = String(body?.kind ?? keep?.kind ?? "once");
     if (!["once", "daily", "weekly"].includes(kind)) throw new ValidationError("Choose when the window happens");
     const have = new Set(this.monitorIds());
-    const monitors = [...new Set<string>((Array.isArray(body?.monitors) ? body.monitors : keep?.monitors ?? []).map(String))].filter(id => have.has(id));
+    const asked = [...new Set<string>((Array.isArray(body?.monitors) ? body.monitors : keep?.monitors ?? []).map(String))];
+    const monitors = asked.filter(id => have.has(id));
+    // An empty list means "every monitor", so a list of monitors that no longer exist must not quietly turn into that.
+    if (asked.length && !monitors.length) throw new ValidationError("Choose at least one monitor that exists, or none to cover them all");
     let startsAt: number | null = null, endsAt: number | null = null, days: number[] = [], startTime = "00:00", durationMin = 60;
     if (kind === "once") {
       startsAt = Number(body?.startsAt ?? keep?.startsAt); endsAt = Number(body?.endsAt ?? keep?.endsAt);
@@ -339,7 +363,11 @@ export class Windows {
   }
   remove(id: string): boolean { return Number(this.db.prepare("DELETE FROM maintenance_windows WHERE id = ?").run(id).changes) === 1; }
   forgetMonitor(monitorId: string): void {
-    for (const w of this.list()) if (w.monitors.includes(monitorId)) this.db.prepare("UPDATE maintenance_windows SET monitors = ? WHERE id = ?").run(JSON.stringify(w.monitors.filter(x => x !== monitorId)), w.id);
+    // A window that loses its last monitor is switched off, not widened to cover everything.
+    for (const w of this.list()) if (w.monitors.includes(monitorId)) {
+      const rest = w.monitors.filter(x => x !== monitorId);
+      this.db.prepare("UPDATE maintenance_windows SET monitors = ?, enabled = ? WHERE id = ?").run(JSON.stringify(rest), rest.length ? (w.enabled ? 1 : 0) : 0, w.id);
+    }
   }
 
   /** Is this monitor inside a maintenance window right now? An empty monitor list means every monitor. */
@@ -361,7 +389,7 @@ const DAY = 86400_000, RAW_KEEP_DAYS = 8, DAILY_KEEP_DAYS = 400, MAX_MONITORS = 
 
 interface Live { state: MonitorState; since: number; fails: number; lastAt: number | null; lastMs: number | null; message: string; certWarned: number }
 export interface MonitorView {
-  id: string; name: string; group: string; description: string; kind: MonitorKind; enabled: boolean; state: MonitorState; since: number | null; lastAt: number | null; lastMs: number | null; message: string;
+  id: string; name: string; group: string; parentId: string; description: string; kind: MonitorKind; enabled: boolean; state: MonitorState; since: number | null; lastAt: number | null; lastMs: number | null; message: string;
   uptime24h: number | null; uptime7d: number | null; uptime30d: number | null; avgMs24h: number | null; certExpires: number | null; strip: Array<0 | 1 | 2 | 3>;
   /** Only for signed-in administrators. */
   config?: MonitorConfig;
@@ -386,11 +414,11 @@ export class Monitors {
   // ---- configuration
 
   private map(r: Raw): MonitorConfig {
-    let headers = "", hasAuthPass = false;
-    if (r.secret) { try { const s = JSON.parse(this.box.open(r.secret)); headers = String(s.headers ?? ""); hasAuthPass = Boolean(s.authPass); } catch { /* unreadable: treated as empty */ } }
+    let headers = "", hasAuthPass = false, hasConn = false;
+    if (r.secret) { try { const s = JSON.parse(this.box.open(r.secret)); headers = String(s.headers ?? ""); hasAuthPass = Boolean(s.authPass); hasConn = Boolean(s.conn); } catch { /* unreadable: treated as empty */ } }
     return {
       id: r.id, name: r.name, group: r.group_name, description: r.description, kind: (MONITOR_KINDS as readonly string[]).includes(r.kind) ? r.kind as MonitorKind : "http", target: r.target, port: r.port,
-      keyword: r.keyword, invert: Boolean(r.invert), jsonPath: r.json_path, expect: r.expect, method: r.method, body: r.body, headers, authUser: r.auth_user, hasAuthPass,
+      keyword: r.keyword, invert: Boolean(r.invert), jsonPath: r.json_path, expect: r.expect, method: r.method, body: r.body, headers, authUser: r.auth_user, hasAuthPass, hasConn, parentId: r.parent_id,
       maxRedirects: r.max_redirects, upsideDown: Boolean(r.upside_down), dnsType: r.dns_type, dnsServer: r.dns_server, intervalSeconds: r.interval_s, retryIntervalSeconds: r.retry_s,
       timeoutSeconds: r.timeout_s, retries: r.retries, insecureTls: Boolean(r.insecure_tls), certWarnDays: r.cert_warn_days, enabled: Boolean(r.enabled), position: r.position
     };
@@ -405,26 +433,41 @@ export class Monitors {
   private spec(id: string): Spec | undefined {
     const r = this.db.prepare(`SELECT ${COLS} FROM monitors WHERE id = ?`).get(id) as Raw | undefined;
     if (!r) return undefined;
-    let authPass = "";
-    if (r.secret) { try { authPass = String(JSON.parse(this.box.open(r.secret)).authPass ?? ""); } catch { /* none */ } }
-    return { ...this.map(r), authPass };
+    let authPass = "", conn = "";
+    if (r.secret) { try { const s = JSON.parse(this.box.open(r.secret)); authPass = String(s.authPass ?? ""); conn = String(s.conn ?? ""); } catch { /* none */ } }
+    return { ...this.map(r), authPass, conn };
   }
 
   /** A monitor as typed in the form, for trying it out. A blank password falls back to the saved one of `body.id`. */
   forTest(body: any): Spec {
     const c = cleanMonitor(body);
-    const saved = typeof body?.id === "string" ? this.spec(body.id)?.authPass : undefined;
-    return { ...c, id: "", position: 0, hasAuthPass: false, authPass: c.authPass ?? saved ?? "" };
+    const saved = typeof body?.id === "string" ? this.spec(body.id) : undefined;
+    return { ...c, id: "", position: 0, hasAuthPass: false, hasConn: false, authPass: c.authPass ?? saved?.authPass ?? "", conn: c.conn ?? (saved?.kind === c.kind ? saved.conn : "") };
   }
 
-  private sealed(headers: string, authPass: string): string { return headers || authPass ? this.box.seal(JSON.stringify({ headers, authPass })) : ""; }
+  private sealed(headers: string, authPass: string, conn: string): string { return headers || authPass || conn ? this.box.seal(JSON.stringify({ headers, authPass, conn })) : ""; }
+
+  /** A parent must be a group monitor, and a group can never end up inside itself. */
+  private parentOf(id: string | undefined, parentId: string): string {
+    if (!parentId) return "";
+    const p = this.get(parentId);
+    if (!p || p.kind !== "group") throw new ValidationError("Choose a group monitor to put this in");
+    if (id && parentId === id) throw new ValidationError("A group cannot be inside itself");
+    let cur: MonitorConfig | undefined = p;
+    for (let depth = 0; cur; depth++) {
+      if (id && cur.id === id) throw new ValidationError("That would put a group inside one of its own groups");
+      if (depth > 8) throw new ValidationError("Groups can be nested up to eight levels deep");
+      cur = cur.parentId ? this.get(cur.parentId) : undefined;
+    }
+    return parentId;
+  }
 
   create(body: unknown): MonitorConfig {
     if (this.rows().length >= MAX_MONITORS) throw new ValidationError(`Homebase keeps up to ${MAX_MONITORS} monitors`);
     const c = cleanMonitor(body);
     const id = "m" + randomUUID().replace(/-/g, "").slice(0, 10);
     const pos = Number((this.db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM monitors").get() as { p: number }).p);
-    this.insert({ ...c, id, position: pos, authPass: c.authPass ?? "", hasAuthPass: false });
+    this.insert({ ...c, id, position: pos, authPass: c.authPass ?? "", conn: c.conn ?? "", hasAuthPass: false, hasConn: false, parentId: this.parentOf(undefined, c.parentId) });
     this.reload(id, true);
     return this.get(id)!;
   }
@@ -432,17 +475,20 @@ export class Monitors {
   /** Used by creation and by the backup import (which brings its own ids). */
   insert(c: Spec): void {
     this.db.prepare(`INSERT INTO monitors (${COLS}) VALUES (${COLS.split(",").map(() => "?").join(", ")})`).run(
-      c.id, c.name, c.group, c.description, c.kind, c.target, c.port, c.keyword, c.invert ? 1 : 0, c.jsonPath, c.expect, c.method, c.body, c.authUser, this.sealed(c.headers, c.authPass),
-      c.maxRedirects, c.upsideDown ? 1 : 0, c.dnsType, c.dnsServer, c.intervalSeconds, c.retryIntervalSeconds, c.timeoutSeconds, c.retries, c.insecureTls ? 1 : 0, c.certWarnDays, c.enabled ? 1 : 0, c.position, null, Date.now());
+      c.id, c.name, c.group, c.description, c.kind, c.target, c.port, c.keyword, c.invert ? 1 : 0, c.jsonPath, c.expect, c.method, c.body, c.authUser, this.sealed(c.headers, c.authPass, c.conn),
+      c.maxRedirects, c.upsideDown ? 1 : 0, c.dnsType, c.dnsServer, c.intervalSeconds, c.retryIntervalSeconds, c.timeoutSeconds, c.retries, c.insecureTls ? 1 : 0, c.certWarnDays, c.enabled ? 1 : 0, c.position, null, Date.now(), c.parentId);
   }
 
   update(id: string, body: unknown): MonitorConfig | undefined {
     const old = this.spec(id); if (!old) return undefined;
-    const c = cleanMonitor({ ...old, ...(body as object), authPass: (body as any)?.authPass }, old);
+    const c = cleanMonitor({ ...old, ...(body as object), authPass: (body as any)?.authPass, conn: (body as any)?.conn }, old);
+    const parentId = this.parentOf(id, (body as any)?.parentId === undefined ? old.parentId : c.parentId);
+    const conn = isDbKind(c.kind) ? (c.conn ?? (old.kind === c.kind ? old.conn : "")) : "";
     // A blank password keeps the saved one, unless the user name was cleared or changed to nothing.
     const authPass = c.authUser ? (c.authPass ?? old.authPass) : "";
-    this.db.prepare("UPDATE monitors SET name=?, group_name=?, description=?, kind=?, target=?, port=?, keyword=?, invert=?, json_path=?, expect=?, method=?, body=?, auth_user=?, secret=?, max_redirects=?, upside_down=?, dns_type=?, dns_server=?, interval_s=?, retry_s=?, timeout_s=?, retries=?, insecure_tls=?, cert_warn_days=?, enabled=?, cert_expires=NULL WHERE id=?")
-      .run(c.name, c.group, c.description, c.kind, c.target, c.port, c.keyword, c.invert ? 1 : 0, c.jsonPath, c.expect, c.method, c.body, c.authUser, this.sealed(c.headers, authPass), c.maxRedirects, c.upsideDown ? 1 : 0, c.dnsType, c.dnsServer, c.intervalSeconds, c.retryIntervalSeconds, c.timeoutSeconds, c.retries, c.insecureTls ? 1 : 0, c.certWarnDays, c.enabled ? 1 : 0, id);
+    this.db.prepare("UPDATE monitors SET name=?, group_name=?, description=?, kind=?, target=?, port=?, keyword=?, invert=?, json_path=?, expect=?, method=?, body=?, auth_user=?, secret=?, max_redirects=?, upside_down=?, dns_type=?, dns_server=?, interval_s=?, retry_s=?, timeout_s=?, retries=?, insecure_tls=?, cert_warn_days=?, enabled=?, parent_id=?, cert_expires=NULL WHERE id=?")
+      .run(c.name, c.group, c.description, c.kind, c.target, c.port, c.keyword, c.invert ? 1 : 0, c.jsonPath, c.expect, c.method, c.body, c.authUser, this.sealed(c.headers, authPass, conn), c.maxRedirects, c.upsideDown ? 1 : 0, c.dnsType, c.dnsServer, c.intervalSeconds, c.retryIntervalSeconds, c.timeoutSeconds, c.retries, c.insecureTls ? 1 : 0, c.certWarnDays, c.enabled ? 1 : 0, parentId, id);
+    if (old.kind === "group" && c.kind !== "group") this.db.prepare("UPDATE monitors SET parent_id = '' WHERE parent_id = ?").run(id);
     // A different target is a different thing to watch, so the old streak must not carry over.
     const changed = old.target !== c.target || old.port !== c.port || old.kind !== c.kind;
     this.reload(id, changed);
@@ -459,6 +505,8 @@ export class Monitors {
       if (ids.includes(id)) this.db.prepare("UPDATE status_pages SET monitors = ? WHERE id = ?").run(JSON.stringify(ids.filter(x => x !== id)), p.id);
     }
     this.windows.forgetMonitor(id);
+    // What was inside a removed group stays, as ordinary monitors.
+    this.db.prepare("UPDATE monitors SET parent_id = '' WHERE parent_id = ?").run(id);
     this.reload(id, true);
     return true;
   }
@@ -523,10 +571,28 @@ export class Monitors {
       const age = Date.now() - (this.beats.get(id) ?? Date.now());
       r = age <= m.intervalSeconds * 1000 + (scheduled ? 0 : 2000) ? { up: true, ms: null, message: "Heartbeat is current" } : { up: false, ms: null, message: `No heartbeat for ${Math.round(age / 1000)} s` };
       if (m.upsideDown) r = { ...r, up: !r.up };
-    } else r = await runCheck(m);
+    } else if (m.kind === "group") r = this.groupOutcome(m);
+    else r = await runCheck(m);
     if (!this.get(id)) return undefined; // removed while the check was running
     const state = this.record(m, r);
     return { ...r, state };
+  }
+
+  /** What a group monitor shows: down when any monitor inside it is down, up otherwise. Paused monitors and monitors in maintenance do not count, and groups inside groups are worked out afresh. */
+  private groupOutcome(g: MonitorConfig, depth = 0): CheckResult {
+    const kids = this.list().filter(c => c.parentId === g.id);
+    if (!kids.length) return { up: true, ms: null, message: "No monitors in this group yet" };
+    const now = Date.now(), tz = getSettings(this.db).timezone, wins = this.windows.list();
+    const down: string[] = []; let counted = 0, retrying = 0, waiting = 0;
+    for (const c of kids) {
+      if (!c.enabled || this.windows.active(c.id, now, tz, wins)) continue;
+      counted++;
+      const state = c.kind === "group" && depth < 8 ? (this.groupOutcome(c, depth + 1).up ? "up" : "down") : this.live.get(c.id)?.state ?? "unknown";
+      if (state === "down") down.push(c.name); else if (state === "pending") retrying++; else if (state === "unknown") waiting++;
+    }
+    if (down.length) return { up: false, ms: null, message: `${down.length} of ${counted} down: ${down.slice(0, 4).join(", ")}${down.length > 4 ? ", …" : ""}` };
+    if (!counted) return { up: true, ms: null, message: "Everything in this group is paused or in maintenance" };
+    return { up: true, ms: null, message: `All ${counted} up${retrying ? ` (${retrying} retrying)` : ""}${waiting ? ` (${waiting} waiting for a first check)` : ""}` };
   }
 
   /** A script called the push address. */
@@ -610,7 +676,7 @@ export class Monitors {
           const d7 = daily.get(m.id, today - 7) as { up: number; down: number }, d30 = daily.get(m.id, today - 30) as { up: number; down: number };
           const maint = m.enabled && this.windows.active(m.id, now, tz, wins);
           return {
-            id: m.id, name: m.name, group: m.group, description: m.description, kind: m.kind, enabled: m.enabled, state: !m.enabled ? "paused" : maint ? "maintenance" : live?.state ?? "unknown",
+            id: m.id, name: m.name, group: m.group, parentId: m.parentId, description: m.description, kind: m.kind, enabled: m.enabled, state: !m.enabled ? "paused" : maint ? "maintenance" : live?.state ?? "unknown",
             since: live?.since ?? null, lastAt: live?.lastAt ?? null, lastMs: live?.lastMs ?? null, message: live?.message ?? "",
             uptime24h: pct(d.up ?? 0, d.down ?? 0), uptime7d: pct(d7.up, d7.down), uptime30d: pct(d30.up, d30.down),
             avgMs24h: d.avg === null ? null : Math.round(d.avg), certExpires: (cert.get(m.id) as { c: number | null }).c,
@@ -678,11 +744,17 @@ const duration = (ms: number) => {
 
 // ================================================================ public status pages
 
-export interface StatusPageRow { id: string; title: string; message: string; tone: string; monitors: string[]; enabled: boolean; createdAt: number; lastUsed: number | null; views: number }
-interface PageRaw { id: string; title: string; message: string; tone: string; monitors: string; token_hash: string; token_sealed: string; enabled: number; created_at: number; last_used: number | null; views: number }
-const PCOLS = "id, title, message, tone, monitors, token_hash, token_sealed, enabled, created_at, last_used, views";
-const TONES = ["info", "warn", "bad"];
-const mapPage = (r: PageRaw): StatusPageRow => ({ id: r.id, title: r.title, message: r.message, tone: r.tone, monitors: JSON.parse(r.monitors), enabled: Boolean(r.enabled), createdAt: r.created_at, lastUsed: r.last_used, views: r.views });
+export interface StatusPageRow { id: string; title: string; message: string; tone: string; domain: string; monitors: string[]; enabled: boolean; createdAt: number; lastUsed: number | null; views: number }
+interface PageRaw { id: string; title: string; message: string; tone: string; domain: string; monitors: string; token_hash: string; token_sealed: string; enabled: number; created_at: number; last_used: number | null; views: number }
+const PCOLS = "id, title, message, tone, domain, monitors, token_hash, token_sealed, enabled, created_at, last_used, views";
+const TONES = ["info", "warn", "bad"], INCIDENT_STYLES = ["info", "warn", "bad", "ok"];
+const DOMAIN = /^(?=.{4,253}$)[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+const mapPage = (r: PageRaw): StatusPageRow => ({ id: r.id, title: r.title, message: r.message, tone: r.tone, domain: r.domain, monitors: JSON.parse(r.monitors), enabled: Boolean(r.enabled), createdAt: r.created_at, lastUsed: r.last_used, views: r.views });
+
+export interface Incident { id: string; pageId: string; title: string; body: string; style: string; pinned: boolean; resolvedAt: number | null; createdAt: number; updatedAt: number }
+interface IncRaw { id: string; page_id: string; title: string; body: string; style: string; pinned: number; resolved_at: number | null; created_at: number; updated_at: number }
+const ICOLS = "id, page_id, title, body, style, pinned, resolved_at, created_at, updated_at";
+const mapInc = (r: IncRaw): Incident => ({ id: r.id, pageId: r.page_id, title: r.title, body: r.body, style: r.style, pinned: Boolean(r.pinned), resolvedAt: r.resolved_at, createdAt: r.created_at, updatedAt: r.updated_at });
 
 export class StatusPages {
   constructor(private db: DB, private box: SecretBox, private monitors: Monitors) {}
@@ -699,19 +771,24 @@ export class StatusPages {
     const have = new Set(this.monitors.list().map(m => m.id));
     const ids = [...new Set<string>((Array.isArray(body?.monitors) ? body.monitors : keep?.monitors ?? []).map(String))].filter(id => have.has(id));
     if (!ids.length) throw new ValidationError("Choose at least one monitor to show");
-    return { title, message, tone, ids, enabled: body?.enabled === undefined ? (keep?.enabled ?? true) : Boolean(body.enabled) };
+    let domain = String(body?.domain ?? keep?.domain ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/:\d+$/, "");
+    if (domain) {
+      if (!DOMAIN.test(domain)) throw new ValidationError("Enter a domain name such as status.example.com (no path)");
+      if (this.db.prepare("SELECT id FROM status_pages WHERE domain = ? AND id <> ?").get(domain, keep?.id ?? "")) throw new ValidationError("Another status page already uses that domain");
+    }
+    return { title, message, tone, domain, ids, enabled: body?.enabled === undefined ? (keep?.enabled ?? true) : Boolean(body.enabled) };
   }
 
   create(body: unknown) {
     const c = this.clean(body);
     const token = randomBytes(24).toString("base64url"), id = "p" + randomUUID().replace(/-/g, "").slice(0, 10);
-    this.db.prepare(`INSERT INTO status_pages (${PCOLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)`).run(id, c.title, c.message, c.tone, JSON.stringify(c.ids), hashToken(token), this.box.seal(token), c.enabled ? 1 : 0, Date.now());
+    this.db.prepare(`INSERT INTO status_pages (${PCOLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)`).run(id, c.title, c.message, c.tone, c.domain, JSON.stringify(c.ids), hashToken(token), this.box.seal(token), c.enabled ? 1 : 0, Date.now());
     return this.list().find(p => p.id === id)!;
   }
   update(id: string, body: unknown) {
     const old = this.list().find(p => p.id === id); if (!old) return undefined;
     const c = this.clean(body, old);
-    this.db.prepare("UPDATE status_pages SET title = ?, message = ?, tone = ?, monitors = ?, enabled = ? WHERE id = ?").run(c.title, c.message, c.tone, JSON.stringify(c.ids), c.enabled ? 1 : 0, id);
+    this.db.prepare("UPDATE status_pages SET title = ?, message = ?, tone = ?, domain = ?, monitors = ?, enabled = ? WHERE id = ?").run(c.title, c.message, c.tone, c.domain, JSON.stringify(c.ids), c.enabled ? 1 : 0, id);
     return this.list().find(p => p.id === id);
   }
   /** A new address for the same page; the old one stops working. */
@@ -720,22 +797,115 @@ export class StatusPages {
     if (Number(this.db.prepare("UPDATE status_pages SET token_hash = ?, token_sealed = ? WHERE id = ?").run(hashToken(token), this.box.seal(token), id).changes) !== 1) return undefined;
     return this.list().find(p => p.id === id);
   }
-  remove(id: string): boolean { return Number(this.db.prepare("DELETE FROM status_pages WHERE id = ?").run(id).changes) === 1; }
+  remove(id: string): boolean {
+    const gone = Number(this.db.prepare("DELETE FROM status_pages WHERE id = ?").run(id).changes) === 1;
+    if (gone) this.db.prepare("DELETE FROM status_incidents WHERE page_id = ?").run(id);
+    return gone;
+  }
+
+  // ---- incident posts
+
+  incidents(pageId: string): Incident[] {
+    return (this.db.prepare(`SELECT ${ICOLS} FROM status_incidents WHERE page_id = ? ORDER BY created_at DESC`).all(pageId) as unknown as IncRaw[]).map(mapInc);
+  }
+  private cleanIncident(body: any, keep?: Incident) {
+    const title = String(body?.title ?? keep?.title ?? "").trim();
+    if (!title || title.length > 120) throw new ValidationError("Give the post a title (up to 120 characters)");
+    const text = String(body?.body ?? keep?.body ?? "").trim().slice(0, 2000);
+    const style = INCIDENT_STYLES.includes(String(body?.style)) ? String(body.style) : keep?.style ?? "info";
+    const pinned = body?.pinned === undefined ? (keep?.pinned ?? true) : Boolean(body.pinned);
+    const resolved = body?.resolved === undefined ? Boolean(keep?.resolvedAt) : Boolean(body.resolved);
+    return { title, body: text, style, pinned, resolved };
+  }
+  createIncident(pageId: string, body: unknown): Incident | undefined {
+    if (!this.list().some(p => p.id === pageId)) return undefined;
+    if (this.incidents(pageId).length >= 100) throw new ValidationError("A page keeps up to 100 posts. Remove old ones first.");
+    const c = this.cleanIncident(body), id = "i" + randomUUID().replace(/-/g, "").slice(0, 10), now = Date.now();
+    this.db.prepare(`INSERT INTO status_incidents (${ICOLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, pageId, c.title, c.body, c.style, c.pinned ? 1 : 0, c.resolved ? now : null, now, now);
+    return this.incidents(pageId).find(i => i.id === id);
+  }
+  updateIncident(id: string, body: unknown): Incident | undefined {
+    const raw = this.db.prepare(`SELECT ${ICOLS} FROM status_incidents WHERE id = ?`).get(id) as IncRaw | undefined;
+    if (!raw) return undefined;
+    const old = mapInc(raw), c = this.cleanIncident(body, old), now = Date.now();
+    const resolvedAt = c.resolved ? (old.resolvedAt ?? now) : null;
+    this.db.prepare("UPDATE status_incidents SET title = ?, body = ?, style = ?, pinned = ?, resolved_at = ?, updated_at = ? WHERE id = ?").run(c.title, c.body, c.style, c.pinned ? 1 : 0, resolvedAt, now, id);
+    return this.incidents(old.pageId).find(i => i.id === id);
+  }
+  removeIncident(id: string): boolean { return Number(this.db.prepare("DELETE FROM status_incidents WHERE id = ?").run(id).changes) === 1; }
+
+  // ---- what the public sees
+
+  /** The page whose link or domain this is, if it is switched on. */
+  private find(key: { token?: string; host?: string }): PageRaw | undefined {
+    let r: PageRaw | undefined;
+    if (key.host) r = this.db.prepare(`SELECT ${PCOLS} FROM status_pages WHERE domain = ? AND domain <> ''`).get(key.host.toLowerCase()) as PageRaw | undefined;
+    else if (typeof key.token === "string" && key.token.length >= 20 && key.token.length <= 80) r = this.db.prepare(`SELECT ${PCOLS} FROM status_pages WHERE token_hash = ?`).get(hashToken(key.token)) as PageRaw | undefined;
+    return r && r.enabled ? r : undefined;
+  }
+  /** Domains that have a page, so the sharing port knows which host names to answer with a status page. */
+  domains(): Set<string> {
+    return new Set((this.db.prepare("SELECT domain FROM status_pages WHERE domain <> '' AND enabled = 1").all() as unknown as Array<{ domain: string }>).map(r => r.domain));
+  }
 
   /** What the public page shows. Names, groups, state and uptime only: never an address, a key or an error text. */
-  publicView(token: string) {
-    if (typeof token !== "string" || token.length < 20 || token.length > 80) return undefined;
-    const r = this.db.prepare(`SELECT ${PCOLS} FROM status_pages WHERE token_hash = ?`).get(hashToken(token)) as PageRaw | undefined;
-    if (!r || !r.enabled) return undefined;
+  publicView(key: { token?: string; host?: string }, countView = true) {
+    const r = this.find(key);
+    if (!r) return undefined;
     const page = mapPage(r);
-    this.db.prepare("UPDATE status_pages SET views = views + 1, last_used = ? WHERE id = ?").run(Date.now(), page.id);
-    const byId = new Map(this.monitors.view(false).map(m => [m.id, m]));
+    if (countView) this.db.prepare("UPDATE status_pages SET views = views + 1, last_used = ? WHERE id = ?").run(Date.now(), page.id);
+    const all = this.monitors.view(false), byId = new Map(all.map(m => [m.id, m]));
     const rows = page.monitors.map(id => byId.get(id)).filter((m): m is MonitorView => Boolean(m));
-    const monitors = rows.map(m => ({ name: m.name, group: m.group, state: m.state, uptime24h: m.uptime24h, uptime30d: m.uptime30d, ms: m.lastMs, days: this.monitors.days(m.id, 45) }));
-    const live = rows.filter(m => m.state !== "paused" && m.state !== "unknown" && m.state !== "maintenance");
+    const onPage = new Set(rows.map(m => m.id));
+    // A monitor with no group of its own is shown under the group monitor it sits in, when that one is on the page too.
+    const label = (m: MonitorView) => m.group || (m.parentId && onPage.has(m.parentId) ? byId.get(m.parentId)?.name ?? "" : "");
+    // A group monitor that has monitors under it on this page is shown as their heading, not as a card of its own.
+    const heading = new Set(rows.filter(m => m.parentId && onPage.has(m.parentId)).map(m => m.parentId));
+    const monitors = rows.filter(m => !heading.has(m.id)).map(m => ({ name: m.name, group: label(m), state: m.state, uptime24h: m.uptime24h, uptime30d: m.uptime30d, ms: m.lastMs, days: this.monitors.days(m.id, 45) }));
+    const live = rows.filter(m => m.kind !== "group" && m.state !== "paused" && m.state !== "unknown" && m.state !== "maintenance");
     const down = live.filter(m => m.state === "down").length;
     const overall = !live.length ? (rows.some(m => m.state === "maintenance") ? "maintenance" : "unknown") : down === 0 ? "up" : down === live.length ? "down" : "degraded";
-    return { title: page.title, message: page.message, tone: page.tone, overall, updatedAt: Date.now(), monitors };
+
+    const now = Date.now(), tz = getSettings(this.db).timezone, DAYS30 = 30 * DAY;
+    const maintenance = this.monitors.windows.list()
+      .filter(w => w.enabled && (!w.monitors.length || w.monitors.some(id => onPage.has(id))) && (w.kind !== "once" || ((w.endsAt ?? 0) > now && (w.startsAt ?? 0) < now + DAYS30)))
+      .map(w => ({ title: w.title, active: rows.some(m => this.monitors.windows.active(m.id, now, tz, [w])), kind: w.kind, startsAt: w.startsAt, endsAt: w.endsAt, days: w.days, startTime: w.startTime, durationMin: w.durationMin }))
+      .sort((a, b) => Number(b.active) - Number(a.active));
+
+    const incidents = this.incidents(page.id).filter(i => !i.resolvedAt || now - i.resolvedAt < 14 * DAY)
+      .sort((a, b) => Number(Boolean(a.resolvedAt)) - Number(Boolean(b.resolvedAt)) || Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt).slice(0, 20)
+      .map(i => ({ id: i.id, title: i.title, body: i.body, style: i.style, pinned: i.pinned, resolved: Boolean(i.resolvedAt), createdAt: i.createdAt, updatedAt: i.updatedAt }));
+
+    return { title: page.title, message: page.message, tone: page.tone, overall, updatedAt: now, timezone: tz, monitors, incidents, maintenance };
+  }
+
+  /** A badge for the whole page (index 0) or for one monitor on it (1, 2, … in the order the page lists them). */
+  badge(key: { token?: string; host?: string }, index: number, type: string, label: string, days: number): string | undefined {
+    const r = this.find(key); if (!r) return undefined;
+    const page = mapPage(r), byId = new Map(this.monitors.view(false).map(m => [m.id, m]));
+    const rows = page.monitors.map(id => byId.get(id)).filter((m): m is MonitorView => Boolean(m));
+    const text = label.trim().slice(0, 40);
+    if (index === 0) {
+      const v = this.publicView(key, false)!;
+      const tone = { up: "ok", degraded: "warn", down: "bad", maintenance: "info", unknown: "mute" }[v.overall] as "ok" | "warn" | "bad" | "info" | "mute";
+      const word = { up: "operational", degraded: "degraded", down: "outage", maintenance: "maintenance", unknown: "unknown" }[v.overall] as string;
+      return badgeSvg(text || page.title, word, tone);
+    }
+    const m = rows[index - 1]; if (!m) return undefined;
+    if (type === "uptime") {
+      const u = days >= 30 ? m.uptime30d : days >= 7 ? m.uptime7d : m.uptime24h;
+      return badgeSvg(text || `${m.name} uptime`, u === null ? "no data" : `${u}%`, u === null ? "mute" : u >= 99 ? "ok" : u >= 95 ? "warn" : "bad");
+    }
+    if (type === "ping") return badgeSvg(text || `${m.name} response`, m.lastMs === null ? "no data" : `${m.lastMs} ms`, m.lastMs === null ? "mute" : "info");
+    const tone = ({ up: "ok", down: "bad", pending: "warn", maintenance: "info", paused: "mute", unknown: "mute" } as const)[m.state];
+    return badgeSvg(text || m.name, m.state === "pending" ? "retrying" : m.state === "unknown" ? "waiting" : m.state, tone);
+  }
+
+  /** The incident posts of a page as RSS, newest first. */
+  feed(key: { token?: string; host?: string }, link: string): string | undefined {
+    const r = this.find(key); if (!r) return undefined;
+    const items = this.incidents(r.id).slice(0, 30).map(i => ({ id: i.id, title: i.title, body: i.body, style: i.style, resolved: Boolean(i.resolvedAt), createdAt: i.createdAt, updatedAt: i.updatedAt }));
+    return rssXml(r.title, link, items.sort((a, b) => b.updatedAt - a.updatedAt));
   }
 }
 
@@ -743,7 +913,7 @@ export class StatusPages {
 
 /** Monitors for a backup file. Passwords, request headers and push addresses are secrets and stay out of it; the import says which monitors need them again. */
 export function exportMonitors(mon: Monitors, db: DB) {
-  const monitors = mon.list().map(m => ({ ...m, headers: "", target: m.kind === "push" ? "" : m.target, secretsOmitted: Boolean(m.headers || m.hasAuthPass || m.kind === "push") }));
+  const monitors = mon.list().map(m => ({ ...m, headers: "", target: m.kind === "push" ? "" : m.target, secretsOmitted: Boolean(m.headers || m.hasAuthPass || m.hasConn || m.kind === "push") }));
   const statusPages = (db.prepare(`SELECT ${PCOLS} FROM status_pages ORDER BY created_at`).all() as unknown as PageRaw[]).map(mapPage);
-  return { monitors, statusPages: statusPages.map(({ id, title, message, tone, monitors: m, enabled }) => ({ id, title, message, tone, monitors: m, enabled })) };
+  return { monitors, statusPages: statusPages.map(({ id, title, message, tone, domain, monitors: m, enabled }) => ({ id, title, message, tone, domain, monitors: m, enabled, incidents: (db.prepare(`SELECT ${ICOLS} FROM status_incidents WHERE page_id = ? ORDER BY created_at`).all(id) as unknown as IncRaw[]).map(mapInc).map(i => ({ title: i.title, body: i.body, style: i.style, pinned: i.pinned, resolved: Boolean(i.resolvedAt) })) })) };
 }

@@ -75,3 +75,33 @@ export function ResponseChart({ points, hours }: { points: Array<{ t: number; ms
     </svg>
   );
 }
+
+export const KIND_LABEL: Record<string, string> = { http: "Website", keyword: "Keyword", json: "JSON", tcp: "Port", ping: "Ping", dns: "DNS", cert: "Certificate", push: "Heartbeat", docker: "Docker", postgres: "PostgreSQL", mysql: "MySQL", mongodb: "MongoDB", redis: "Redis", mssql: "SQL Server", group: "Group" };
+
+/** Monitors in tree order: each group monitor is followed by what is inside it, with how deep that is. A monitor whose parent is not in the list stands on its own. */
+export function flattenTree<T extends { id: string; parentId: string }>(rows: T[]): Array<{ item: T; depth: number }> {
+  const ids = new Set(rows.map(r => r.id)), kids = new Map<string, T[]>(), roots: T[] = [];
+  for (const r of rows) {
+    if (r.parentId && r.parentId !== r.id && ids.has(r.parentId)) kids.set(r.parentId, [...(kids.get(r.parentId) ?? []), r]); else roots.push(r);
+  }
+  const out: Array<{ item: T; depth: number }> = [], seen = new Set<string>();
+  const walk = (r: T, depth: number) => { if (seen.has(r.id)) return; seen.add(r.id); out.push({ item: r, depth }); for (const k of kids.get(r.id) ?? []) walk(k, depth + 1); };
+  roots.forEach(r => walk(r, 0));
+  rows.forEach(r => walk(r, 0));
+  return out;
+}
+
+/** Sections by the text group of each top-level monitor; whatever sits inside a group monitor stays with it. */
+export function groupTree<T extends { id: string; parentId: string; group: string }>(rows: T[]): Array<{ name: string; rows: Array<{ item: T; depth: number }> }> {
+  const flat = flattenTree(rows), sections = new Map<string, Array<{ item: T; depth: number }>>();
+  let current = "";
+  for (const f of flat) { if (f.depth === 0) current = f.item.group || ""; sections.set(current, [...(sections.get(current) ?? []), f]); }
+  const named = [...sections.entries()].filter(([k]) => k).map(([name, rs]) => ({ name, rows: rs }));
+  return sections.has("") ? [...named, { name: "", rows: sections.get("")! }] : named;
+}
+
+/** How many of the monitors directly inside a group monitor are up. */
+export function childCounts(rows: Array<{ id: string; parentId: string; state: MonitorState }>, id: string): { up: number; total: number } {
+  const kids = rows.filter(r => r.parentId === id && r.state !== "paused");
+  return { up: kids.filter(r => r.state === "up").length, total: kids.length };
+}

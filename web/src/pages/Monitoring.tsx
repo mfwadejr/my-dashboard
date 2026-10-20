@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { DayBars, ResponseChart, StateDot, STATE_LABEL, Strip, fmtMs, fmtPct, groupRows, groupState } from "../components/MonitorBits";
+import { DayBars, KIND_LABEL, ResponseChart, StateDot, STATE_LABEL, Strip, childCounts, fmtMs, fmtPct, groupState, groupTree } from "../components/MonitorBits";
 import { BLANK_MONITOR, MonitorForm, formFrom, type MonitorFormValues } from "../components/MonitorForm";
 import { Modal } from "../dialogs/Modal";
 import { useMonitors } from "../hooks";
@@ -9,13 +9,13 @@ import { ago, useNotice } from "../settings/ui";
 import type { AuthUser, MonitorHistory, MonitorInfo } from "../types";
 import { Confirm, Pill } from "../widgets/common";
 
-const KIND_LABEL: Record<string, string> = { http: "Website", keyword: "Keyword", json: "JSON", tcp: "Port", ping: "Ping", dns: "DNS", cert: "Certificate", push: "Heartbeat" };
 const RANGES = [["Last 6 hours", 6], ["Last 24 hours", 24], ["Last 7 days", 168], ["Last 30 days", 720], ["Last 90 days", 2160]] as const;
 
 const where = (m: MonitorInfo) => {
   const c = m.config;
   if (!c) return "";
-  return c.kind === "tcp" || c.kind === "cert" ? `${c.target}:${c.port}` : c.kind === "dns" ? `${c.dnsType} ${c.target}` : c.kind === "push" ? "waits for a call" : c.target.replace(/^https?:\/\//, "");
+  if (c.kind === "group") return "";
+  return c.kind === "tcp" || c.kind === "cert" ? `${c.target}:${c.port}` : c.kind === "dns" ? `${c.dnsType} ${c.target}` : c.kind === "push" ? "waits for a call" : c.kind === "docker" ? `container ${c.target}` : c.target.replace(/^https?:\/\//, "");
 };
 
 /** The Monitoring tab: every monitor, grouped, with a detail view for each. Everyone signed in can look; administrators can change things. */
@@ -32,13 +32,19 @@ export function Monitoring({ me, onSettings }: { me: AuthUser; onSettings: () =>
     const t = q.trim().toLowerCase();
     return t ? items.filter(m => `${m.name} ${m.group} ${m.description} ${m.config ? where(m) : ""}`.toLowerCase().includes(t)) : items;
   }, [items, q]);
-  const sections = groupRows(shown);
+  const sections = groupTree(shown);
   const counts = { up: items.filter(m => m.state === "up").length, down: items.filter(m => m.state === "down").length, pending: items.filter(m => m.state === "pending").length, maint: items.filter(m => m.state === "maintenance").length, paused: items.filter(m => m.state === "paused").length };
   const bulk = async (ids: string[], action: "pause" | "resume") => {
     n.clear();
     try { await api.post("/api/monitors/bulk", { ids, action }); await reload(); n.ok(action === "pause" ? "Paused." : "Resumed."); } catch (e) { n.bad(e); }
   };
   const detail = items.find(m => m.id === open);
+  // A group monitor cannot be put inside itself or inside something it contains.
+  const parentsFor = (selfId?: string) => {
+    const inside = new Set<string>(selfId ? [selfId] : []);
+    for (let again = true; again;) { again = false; for (const m of items) if (m.parentId && inside.has(m.parentId) && !inside.has(m.id)) { inside.add(m.id); again = true; } }
+    return items.filter(m => m.kind === "group" && !inside.has(m.id)).map(m => ({ id: m.id, name: m.name }));
+  };
 
   return (
     <div className="monpage">
@@ -61,27 +67,30 @@ export function Monitoring({ me, onSettings }: { me: AuthUser; onSettings: () =>
       {items.length > 6 && <input className="monsearch" type="search" aria-label="Filter monitors" placeholder="Filter by name, group or address…" value={q} onChange={e => setQ(e.target.value)} />}
       {loaded && !items.length && <div className="monempty"><p>{admin ? "Add a website, a port, a ping, a certificate or a heartbeat and Homebase starts keeping watch." : "An administrator has not added any monitors yet."}</p></div>}
       {sections.map(sec => {
-        const state = groupState(sec.rows), up = sec.rows.filter(m => m.state === "up").length;
-        const allPaused = sec.rows.every(m => !m.enabled);
+        const flat = sec.rows.map(r => r.item), state = groupState(flat), up = flat.filter(m => m.state === "up").length;
+        const allPaused = flat.every(m => !m.enabled);
         return (
           <section key={sec.name || "_"} className="mgroup">
             {(sec.name || sections.length > 1) && (
               <div className="mghead">
-                <span className="row g8 f1"><StateDot state={state} /><b>{sec.name || "Other"}</b><span className="sub">{up} of {sec.rows.length} up</span></span>
-                {admin && <button className="btn sm" onClick={() => void bulk(sec.rows.map(m => m.id), allPaused ? "resume" : "pause")}>{allPaused ? "Resume group" : "Pause group"}</button>}
+                <span className="row g8 f1"><StateDot state={state} /><b>{sec.name || "Other"}</b><span className="sub">{up} of {flat.length} up</span></span>
+                {admin && <button className="btn sm" onClick={() => void bulk(flat.map(m => m.id), allPaused ? "resume" : "pause")}>{allPaused ? "Resume group" : "Pause group"}</button>}
               </div>
             )}
             <div className="mglist">
-              {sec.rows.map(m => (
-                <button key={m.id} type="button" className="mitem" onClick={() => setOpen(m.id)} aria-label={`${m.name}: ${STATE_LABEL[m.state]}. Show details`}>
-                  <StateDot state={m.state} />
-                  <span className="mname"><b className="trunc">{m.name}</b><span className="sub trunc">{m.description || where(m) || KIND_LABEL[m.kind]}</span></span>
-                  <span className="mkind sub">{KIND_LABEL[m.kind]}</span>
-                  <Strip checks={m.strip} count={30} />
-                  <span className="mnum"><b>{m.state === "down" ? "Down" : m.state === "maintenance" ? "Maint." : fmtMs(m.lastMs)}</b></span>
-                  <span className="mnum sub">{fmtPct(m.uptime24h)}</span>
-                </button>
-              ))}
+              {sec.rows.map(({ item: m, depth }) => {
+                const c = m.kind === "group" ? childCounts(items, m.id) : null;
+                return (
+                  <button key={m.id} type="button" className={`mitem${depth ? ` d${Math.min(depth, 4)}` : ""}${m.kind === "group" ? " isgroup" : ""}`} onClick={() => setOpen(m.id)} aria-label={`${m.name}: ${STATE_LABEL[m.state]}. Show details`}>
+                    <StateDot state={m.state} />
+                    <span className="mname"><b className="trunc">{m.name}</b><span className="sub trunc">{m.description || (c ? `${c.up} of ${c.total} up` : where(m)) || KIND_LABEL[m.kind]}</span></span>
+                    <span className="mkind sub">{KIND_LABEL[m.kind]}</span>
+                    <Strip checks={m.strip} count={30} />
+                    <span className="mnum"><b>{m.state === "down" ? "Down" : m.state === "maintenance" ? "Maint." : m.kind === "group" ? STATE_LABEL[m.state] : fmtMs(m.lastMs)}</b></span>
+                    <span className="mnum sub">{fmtPct(m.uptime24h)}</span>
+                  </button>
+                );
+              })}
             </div>
           </section>
         );
@@ -90,7 +99,7 @@ export function Monitoring({ me, onSettings }: { me: AuthUser; onSettings: () =>
       {detail && <Detail m={detail} admin={admin} onClose={() => setOpen(null)} reload={reload}
         onEdit={() => { if (detail.config) { setOpen(null); setEditing({ id: detail.id, form: formFrom(detail.config) }); } }}
         onClone={() => { if (detail.config) { setOpen(null); setEditing({ form: { ...formFrom(detail.config), name: `${detail.name} (copy)` } }); } }} />}
-      {editing && <MonitorForm id={editing.id} start={editing.form} groups={groups} pushBase={window.location.origin} onClose={() => setEditing(null)} onSaved={async text => { setEditing(null); await reload(); n.ok(text); }} />}
+      {editing && <MonitorForm id={editing.id} start={editing.form} groups={groups} parents={parentsFor(editing.id)} hasConn={Boolean(editing.id && items.find(m => m.id === editing.id)?.config?.hasConn)} pushBase={window.location.origin} onClose={() => setEditing(null)} onSaved={async text => { setEditing(null); await reload(); n.ok(text); }} />}
     </div>
   );
 }

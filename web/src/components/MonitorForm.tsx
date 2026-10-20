@@ -3,29 +3,37 @@ import { api } from "../api";
 import { Field, Modal } from "../dialogs/Modal";
 import type { MonitorConfigInfo } from "../types";
 
-const KINDS = [
-  ["http", "Website (HTTP/HTTPS)"], ["keyword", "Website with a word on the page"], ["json", "Website answer (JSON field)"], ["tcp", "Port (is a service listening)"],
-  ["ping", "Ping a host"], ["dns", "DNS name"], ["cert", "Certificate expiry"], ["push", "Heartbeat (a script reports in)"]
-] as const;
+const KINDS: Array<[string, Array<[string, string]>]> = [
+  ["Websites", [["http", "Website (HTTP/HTTPS)"], ["keyword", "Website with a word on the page"], ["json", "Website answer (JSON field)"], ["cert", "Certificate expiry"]]],
+  ["Network", [["tcp", "Port (is a service listening)"], ["ping", "Ping a host"], ["dns", "DNS name"]]],
+  ["Services", [["docker", "Docker container"], ["postgres", "PostgreSQL"], ["mysql", "MySQL / MariaDB"], ["mongodb", "MongoDB"], ["redis", "Redis"], ["mssql", "SQL Server"]]],
+  ["Other", [["push", "Heartbeat (a script reports in)"], ["group", "Group of monitors"]]]
+];
+const DB_KINDS = ["postgres", "mysql", "mongodb", "redis", "mssql"];
+const CONN_EXAMPLE: Record<string, string> = {
+  postgres: "postgres://user:password@host:5432/database", mysql: "mysql://user:password@host:3306/database", mongodb: "mongodb://user:password@host:27017",
+  redis: "redis://:password@host:6379", mssql: "Server=host,1433;Database=db;User Id=user;Password=pass;Encrypt=true"
+};
 const METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 
 export const BLANK_MONITOR = {
   kind: "http", name: "", group: "", description: "", target: "", port: "", keyword: "", invert: false, jsonPath: "", expect: "200-299", method: "GET", body: "", headers: "", authUser: "", authPass: "",
-  maxRedirects: 5, upsideDown: false, dnsType: "A", dnsServer: "", intervalSeconds: 60, retryIntervalSeconds: 20, timeoutSeconds: 10, retries: 1, insecureTls: false, certWarnDays: 14
+  conn: "", parentId: "", maxRedirects: 5, upsideDown: false, dnsType: "A", dnsServer: "", intervalSeconds: 60, retryIntervalSeconds: 20, timeoutSeconds: 10, retries: 1, insecureTls: false, certWarnDays: 14
 };
 export type MonitorFormValues = typeof BLANK_MONITOR;
 
-export const formFrom = (c: MonitorConfigInfo): MonitorFormValues => ({ ...BLANK_MONITOR, ...c, port: c.port ? String(c.port) : "", authPass: "" } as MonitorFormValues);
+export const formFrom = (c: MonitorConfigInfo): MonitorFormValues => ({ ...BLANK_MONITOR, ...c, port: c.port ? String(c.port) : "", authPass: "", conn: "" } as MonitorFormValues);
 
 /** Add or change a monitor. Every field here is saved as typed; the server checks it again. */
-export function MonitorForm({ id, start, groups, pushBase, onClose, onSaved }: {
-  id?: string; start: MonitorFormValues; groups: string[]; pushBase: string; hasPass?: boolean; onClose: () => void; onSaved: (text: string) => void;
+export function MonitorForm({ id, start, groups, parents, hasConn, pushBase, onClose, onSaved }: {
+  id?: string; start: MonitorFormValues; groups: string[]; parents: Array<{ id: string; name: string }>; hasConn?: boolean; pushBase: string; onClose: () => void; onSaved: (text: string) => void;
 }) {
   const [f, setF] = useState<MonitorFormValues>(start);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState("");
   const set = <K extends keyof MonitorFormValues>(k: K, v: MonitorFormValues[K]) => setF(x => ({ ...x, [k]: v }));
   const web = f.kind === "http" || f.kind === "keyword" || f.kind === "json";
+  const db = DB_KINDS.includes(f.kind), group = f.kind === "group";
   const body = () => ({ ...f, port: f.port === "" ? 0 : Number(f.port), id });
   const test = async () => {
     setBusy("test"); setMsg(null);
@@ -44,7 +52,7 @@ export function MonitorForm({ id, start, groups, pushBase, onClose, onSaved }: {
     <Modal title={id ? "Edit monitor" : "Add a monitor"} eyebrow="Monitoring" onClose={onClose} wide>
       <div className="form">
         <div className="row2">
-          <Field label="What to check"><select value={f.kind} onChange={e => set("kind", e.target.value)}>{KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
+          <Field label="What to check"><select value={f.kind} onChange={e => set("kind", e.target.value)}>{KINDS.map(([g, list]) => <optgroup key={g} label={g}>{list.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</optgroup>)}</select></Field>
           <Field label="Name"><input value={f.name} maxLength={60} placeholder="Shown on the dashboard" onChange={e => set("name", e.target.value)} /></Field>
         </div>
         <div className="row2">
@@ -52,6 +60,12 @@ export function MonitorForm({ id, start, groups, pushBase, onClose, onSaved }: {
           <Field label="Description (optional)" hint="A short note shown under the name."><input value={f.description} maxLength={200} onChange={e => set("description", e.target.value)} /></Field>
           <datalist id="monitor-groups">{groups.map(g => <option key={g} value={g} />)}</datalist>
         </div>
+        {parents.length > 0 && (
+          <Field label="Inside the group monitor (optional)" hint="Its state then counts toward that group monitor.">
+            <select value={f.parentId} onChange={e => set("parentId", e.target.value)}><option value="">None</option>{parents.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+          </Field>
+        )}
+        {group && <p className="sub">A group monitor has no check of its own. It is down when any monitor placed inside it is down, and up otherwise, so you can see one status for several services. Choose this group when you add or edit the others.</p>}
 
         {web && <Field label="Address" hint="The full address, for example https://nas.example.com or http://192.168.1.10:8989."><input value={f.target} placeholder="https://" onChange={e => set("target", e.target.value)} /></Field>}
         {(f.kind === "tcp" || f.kind === "cert") && (
@@ -61,6 +75,16 @@ export function MonitorForm({ id, start, groups, pushBase, onClose, onSaved }: {
           </div>
         )}
         {f.kind === "ping" && <Field label="Host" hint="A host name or IP address. The ping is sent from this machine."><input value={f.target} onChange={e => set("target", e.target.value)} /></Field>}
+        {f.kind === "docker" && <Field label="Container name" hint="As shown by docker ps. Homebase reads the container's state through the Docker socket, so mount /var/run/docker.sock into the Homebase container."><input value={f.target} placeholder="plex" onChange={e => set("target", e.target.value)} /></Field>}
+        {db && (
+          <>
+            <Field label="Connection string" hint={id && hasConn ? "Leave empty to keep the saved one. It is stored encrypted and never shown again." : `Looks like ${CONN_EXAMPLE[f.kind]}. Stored encrypted.`}>
+              <input type="password" value={f.conn} maxLength={1000} autoComplete="new-password" spellCheck={false} placeholder={id && hasConn ? "(saved)" : CONN_EXAMPLE[f.kind]} onChange={e => set("conn", e.target.value)} />
+            </Field>
+            {f.kind !== "redis" && f.kind !== "mongodb" && <Field label="Query to run (optional)" hint="It runs as the account in the connection string, so use one that can only read. Empty runs SELECT 1."><input value={f.body} maxLength={500} spellCheck={false} placeholder="SELECT 1" onChange={e => set("body", e.target.value)} /></Field>}
+            <label className="chk"><input type="checkbox" checked={f.insecureTls} onChange={e => set("insecureTls", e.target.checked)} /> Accept a self-signed certificate (when the connection uses TLS)</label>
+          </>
+        )}
         {f.kind === "dns" && (
           <>
             <div className="row2">
@@ -111,20 +135,24 @@ export function MonitorForm({ id, start, groups, pushBase, onClose, onSaved }: {
         )}
 
         <div className="row2">
-          <Field label="Check every (seconds)" hint="At least 20."><input type="number" min={20} max={86400} value={f.intervalSeconds} onChange={e => set("intervalSeconds", Number(e.target.value))} /></Field>
-          <Field label="Give up after (seconds)" hint="Up to 60."><input type="number" min={1} max={60} value={f.timeoutSeconds} onChange={e => set("timeoutSeconds", Number(e.target.value))} /></Field>
+          <Field label={group ? "Update the status every (seconds)" : "Check every (seconds)"} hint="At least 20."><input type="number" min={20} max={86400} value={f.intervalSeconds} onChange={e => set("intervalSeconds", Number(e.target.value))} /></Field>
+          {!group && <Field label="Give up after (seconds)" hint="Up to 60."><input type="number" min={1} max={60} value={f.timeoutSeconds} onChange={e => set("timeoutSeconds", Number(e.target.value))} /></Field>}
         </div>
-        <div className="row2">
-          <Field label="Retries before it counts as down" hint="0 to 10."><input type="number" min={0} max={10} value={f.retries} onChange={e => set("retries", Number(e.target.value))} /></Field>
-          <Field label="Retry every (seconds)" hint="How soon a failed check is repeated."><input type="number" min={20} max={86400} value={f.retryIntervalSeconds} onChange={e => set("retryIntervalSeconds", Number(e.target.value))} /></Field>
-        </div>
-        <div className="row2">
-          {(web || f.kind === "cert") ? <Field label="Warn when the certificate ends within (days)" hint="0 turns the warning off."><input type="number" min={0} max={365} value={f.certWarnDays} onChange={e => set("certWarnDays", Number(e.target.value))} /></Field> : <span />}
-          <label className="chk fcheck"><input type="checkbox" checked={f.upsideDown} onChange={e => set("upsideDown", e.target.checked)} /> Upside-down mode: down when it is reachable, up when it is not</label>
-        </div>
+        {!group && (
+          <>
+            <div className="row2">
+              <Field label="Retries before it counts as down" hint="0 to 10."><input type="number" min={0} max={10} value={f.retries} onChange={e => set("retries", Number(e.target.value))} /></Field>
+              <Field label="Retry every (seconds)" hint="How soon a failed check is repeated."><input type="number" min={20} max={86400} value={f.retryIntervalSeconds} onChange={e => set("retryIntervalSeconds", Number(e.target.value))} /></Field>
+            </div>
+            <div className="row2">
+              {(web || f.kind === "cert") ? <Field label="Warn when the certificate ends within (days)" hint="0 turns the warning off."><input type="number" min={0} max={365} value={f.certWarnDays} onChange={e => set("certWarnDays", Number(e.target.value))} /></Field> : <span />}
+              <label className="chk fcheck"><input type="checkbox" checked={f.upsideDown} onChange={e => set("upsideDown", e.target.checked)} /> Upside-down mode: down when it is reachable, up when it is not</label>
+            </div>
+          </>
+        )}
         {msg && <p className={msg.ok ? "ok-note" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
         <div className="acts">
-          {f.kind !== "push" ? <button className="btn" disabled={busy !== ""} onClick={() => void test()}>{busy === "test" ? "Testing…" : "Test"}</button> : <span />}
+          {f.kind !== "push" && !group ? <button className="btn" disabled={busy !== ""} onClick={() => void test()}>{busy === "test" ? "Testing…" : "Test"}</button> : <span />}
           <span className="acts-right"><button className="btn" onClick={onClose}>Cancel</button><button className="btn pri" disabled={busy !== ""} onClick={() => void save()}>{busy === "save" ? "Saving…" : "Save"}</button></span>
         </div>
       </div>

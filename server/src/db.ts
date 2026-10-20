@@ -149,6 +149,15 @@ const MIGRATIONS: string[] = [
     days TEXT NOT NULL DEFAULT '', start_time TEXT NOT NULL DEFAULT '00:00', duration_min INTEGER NOT NULL DEFAULT 60, enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL
   );
   `,
+  /* 11: group monitors, status page domains and incident posts */ `
+  ALTER TABLE monitors ADD COLUMN parent_id TEXT NOT NULL DEFAULT '';
+  ALTER TABLE status_pages ADD COLUMN domain TEXT NOT NULL DEFAULT '';
+  CREATE TABLE status_incidents (
+    id TEXT PRIMARY KEY, page_id TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', style TEXT NOT NULL DEFAULT 'info',
+    pinned INTEGER NOT NULL DEFAULT 1, resolved_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  );
+  CREATE INDEX status_incidents_ix ON status_incidents(page_id, created_at);
+  `,
 ];
 
 /** Exposed for tests that need to build an older database. */

@@ -97,7 +97,7 @@ export function monitorRoutes(app: FastifyInstance, d: Deps): void {
 
   // ---- public status pages (managed here, shown by statusOpenRoutes)
 
-  const linkOf = (p: { id: string; token: string; title: string; message: string; tone: string; monitors: string[]; enabled: boolean; views: number; lastUsed: number | null; createdAt: number }) => ({ ...p, path: `/status/${p.token}` });
+  const linkOf = (p: { id: string; token: string; title: string; message: string; tone: string; domain: string; monitors: string[]; enabled: boolean; views: number; lastUsed: number | null; createdAt: number }) => ({ ...p, path: `/status/${p.token}` });
   app.get("/api/status-pages", admin, async () => ({ items: statusPages.list().map(linkOf) }));
   app.post("/api/status-pages", admin, async (request, reply) => {
     try {
@@ -119,6 +119,22 @@ export function monitorRoutes(app: FastifyInstance, d: Deps): void {
     logEvent(db, "info", "sharing", `${access.actor(request)} made a new link for the status page "${p.title}"; the old link stopped working`);
     return linkOf(p);
   });
+  app.get("/api/status-pages/:id/incidents", admin, async request => ({ items: statusPages.incidents((request.params as { id: string }).id) }));
+  app.post("/api/status-pages/:id/incidents", admin, async (request, reply) => {
+    try {
+      const i = statusPages.createIncident((request.params as { id: string }).id, request.body);
+      if (!i) return reply.code(404).send({ error: "Not found" });
+      logEvent(db, "info", "sharing", `${access.actor(request)} posted "${i.title}" on a status page`);
+      return i;
+    } catch (error) { return bad(reply, error); }
+  });
+  app.put("/api/status-incidents/:id", admin, async (request, reply) => {
+    try {
+      const i = statusPages.updateIncident((request.params as { id: string }).id, request.body);
+      return i ?? reply.code(404).send({ error: "Not found" });
+    } catch (error) { return bad(reply, error); }
+  });
+  app.delete("/api/status-incidents/:id", admin, async (request, reply) => (statusPages.removeIncident((request.params as { id: string }).id) ? { ok: true } : reply.code(404).send({ error: "Not found" })));
   app.delete("/api/status-pages/:id", admin, async (request, reply) => {
     const id = (request.params as { id: string }).id, p = statusPages.list().find(x => x.id === id);
     if (!p || !statusPages.remove(id)) return reply.code(404).send({ error: "Not found" });
@@ -142,13 +158,39 @@ export function statusOpenRoutes(app: FastifyInstance, d: Deps): void {
     return { ok: true };
   });
 
+  /** A page is found by its link, or (for `_host`) by the domain the visitor used. */
+  const keyOf = (request: { params: unknown; headers: { host?: string } }) => {
+    const token = (request.params as { token: string }).token;
+    return token === "_host" ? { host: String(request.headers.host ?? "").replace(/:\d+$/, "").toLowerCase() } : { token };
+  };
+  const gateOpen = (request: { ip: string }, reply: { code: (n: number) => { send: (b: unknown) => unknown } }) => {
+    if (!throttleHit(d.db, `statuspage:${request.ip}`, 120, 60_000)) { reply.code(429).send({ error: "Too many requests. Wait a minute." }); return false; }
+    return true;
+  };
+  const missing = (request: { ip: string }, reply: { code: (n: number) => { send: (b: unknown) => unknown } }) => {
+    if (!throttleHit(d.db, `statusbad:${request.ip}`, 20, 600_000)) return reply.code(429).send({ error: "Too many wrong links. Wait ten minutes." });
+    return reply.code(404).send({ error: "This status page is not available." });
+  };
+
   app.get("/api/status/:token", async (request, reply) => {
-    if (!throttleHit(d.db, `statuspage:${request.ip}`, 120, 60_000)) return reply.code(429).send({ error: "Too many requests. Wait a minute." });
-    const view = d.statusPages.publicView((request.params as { token: string }).token);
-    if (!view) {
-      if (!throttleHit(d.db, `statusbad:${request.ip}`, 20, 600_000)) return reply.code(429).send({ error: "Too many wrong links. Wait ten minutes." });
-      return reply.code(404).send({ error: "This status page is not available." });
-    }
-    return view;
+    if (!gateOpen(request, reply)) return;
+    return d.statusPages.publicView(keyOf(request)) ?? missing(request, reply);
+  });
+
+  app.get("/api/status/:token/badge/:n?", async (request, reply) => {
+    if (!gateOpen(request, reply)) return;
+    const q = request.query as { type?: string; label?: string; days?: string };
+    const n = Number((request.params as { n?: string }).n ?? 0);
+    const svg = Number.isInteger(n) && n >= 0 && n <= 200 ? d.statusPages.badge(keyOf(request), n, String(q.type ?? "status"), String(q.label ?? ""), Number(q.days) || 1) : undefined;
+    if (!svg) return missing(request, reply);
+    return reply.header("Content-Type", "image/svg+xml").header("Cache-Control", "public, max-age=60").send(svg);
+  });
+
+  app.get("/api/status/:token/rss", async (request, reply) => {
+    if (!gateOpen(request, reply)) return;
+    const key = keyOf(request), base = `${request.protocol}://${request.headers.host ?? "localhost"}`;
+    const xml = d.statusPages.feed(key, "host" in key ? `${base}/` : `${base}/status/${(request.params as { token: string }).token}`);
+    if (!xml) return missing(request, reply);
+    return reply.header("Content-Type", "application/rss+xml; charset=utf-8").header("Cache-Control", "public, max-age=120").send(xml);
   });
 }

@@ -30,7 +30,7 @@ export interface BackupFile {
   icons?: Record<string, string>;
   /** Uptime monitors and public status pages (no history, and status page links are made new on import). */
   monitors?: Array<MonitorConfig & { secretsOmitted?: boolean }>;
-  statusPages?: Array<{ id: string; title: string; message: string; tone?: string; monitors: string[]; enabled: boolean }>;
+  statusPages?: Array<{ id: string; title: string; message: string; tone?: string; domain?: string; monitors: string[]; enabled: boolean; incidents?: Array<{ title: string; body: string; style: string; pinned: boolean; resolved: boolean }> }>;
 }
 type AccountRow = Record<string, string | number | null>;
 interface SecretsPlain { integrations: Record<string, string>; cameras: Record<string, { main: string; sub: string }>; accounts?: AccountRow[] }
@@ -111,12 +111,22 @@ export function parseBackup(raw: unknown): BackupFile {
   });
   const monitors = (Array.isArray(f.monitors) ? f.monitors : []).slice(0, 100).map((m: any, i: number): MonitorConfig & { secretsOmitted?: boolean } => {
     if (!ID.test(String(m?.id))) throw new ValidationError("A monitor in the file has an invalid id");
-    const { authPass: _p, ...c } = cleanMonitor({ ...m, authPass: "" });
-    return { ...c, hasAuthPass: false, id: String(m.id), position: i, secretsOmitted: Boolean(m.secretsOmitted) };
+    const { authPass: _p, conn: _c, ...c } = cleanMonitor({ ...m, authPass: "", conn: "" }, undefined, true);
+    return { ...c, hasAuthPass: false, hasConn: false, id: String(m.id), position: i, secretsOmitted: Boolean(m.secretsOmitted) };
   });
+  // A group inside the file must exist, be a group, and not lead back to itself.
+  const byId = new Map(monitors.map(m => [m.id, m]));
+  for (const m of monitors) {
+    const p = m.parentId ? byId.get(m.parentId) : undefined;
+    if (!p || p.kind !== "group" || p.id === m.id) { m.parentId = ""; continue; }
+    let cur: typeof m | undefined = p, n = 0;
+    while (cur && cur.parentId && n++ < 12) cur = byId.get(cur.parentId);
+    if (cur && cur.parentId) m.parentId = "";
+  }
   const monIds = new Set(monitors.map(m => m.id));
   const statusPages = (Array.isArray(f.statusPages) ? f.statusPages : []).slice(0, 50).map((p: any) => ({
-    id: String(p?.id ?? "").slice(0, 64), title: String(p?.title ?? "Status").trim().slice(0, 80) || "Status", message: String(p?.message ?? "").slice(0, 400), tone: ["info", "warn", "bad"].includes(p?.tone) ? p.tone : "info",
+    id: String(p?.id ?? "").slice(0, 64), title: String(p?.title ?? "Status").trim().slice(0, 80) || "Status", message: String(p?.message ?? "").slice(0, 400), tone: ["info", "warn", "bad"].includes(p?.tone) ? p.tone : "info", domain: String(p?.domain ?? "").slice(0, 253),
+    incidents: (Array.isArray(p?.incidents) ? p.incidents : []).slice(0, 100).map((i: any) => ({ title: String(i?.title ?? "").slice(0, 120), body: String(i?.body ?? "").slice(0, 2000), style: String(i?.style ?? "info"), pinned: i?.pinned !== false, resolved: Boolean(i?.resolved) })).filter((i: { title: string }) => i.title),
     monitors: (Array.isArray(p?.monitors) ? p.monitors.map(String) : []).filter((x: string) => monIds.has(x)), enabled: p?.enabled !== false
   })).filter(p => p.monitors.length);
   const s = f.secrets as SecretsBlob | null | undefined;
@@ -224,13 +234,18 @@ export async function applyBackup(deps: Deps, file: BackupFile, opts: ImportOpti
     const haveMon = new Set(deps.monitors.list().map(m => m.id));
     tx(db, () => {
       if (replace) { deps.monitors.clearAll(); db.exec("DELETE FROM status_pages;"); haveMon.clear(); }
-      for (const m of file.monitors ?? []) { if (haveMon.has(m.id)) continue; const { secretsOmitted, ...c } = m; deps.monitors.insert({ ...c, authPass: "" }); monitorsAdded++; if (secretsOmitted) needsSecrets.push(`${m.name} (monitor password, headers or push address)`); }
+      for (const m of file.monitors ?? []) { if (haveMon.has(m.id)) continue; const { secretsOmitted, ...c } = m; deps.monitors.insert({ ...c, authPass: "", conn: "" }); monitorsAdded++; if (secretsOmitted) needsSecrets.push(`${m.name} (monitor password, headers or push address)`); }
     });
     const have = new Set(deps.monitors.list().map(m => m.id));
     for (const p of file.statusPages ?? []) {
       const ids = p.monitors.filter(x => have.has(x));
       if (!ids.length) continue;
-      try { deps.statusPages.create({ title: p.title, message: p.message, tone: p.tone, monitors: ids, enabled: p.enabled }); } catch { /* a page that cannot be made is left out */ }
+      try {
+        let made;
+        try { made = deps.statusPages.create({ title: p.title, message: p.message, tone: p.tone, domain: p.domain, monitors: ids, enabled: p.enabled }); }
+        catch { made = deps.statusPages.create({ title: p.title, message: p.message, tone: p.tone, monitors: ids, enabled: p.enabled }); } // the domain is taken: keep the page without it
+        for (const i of p.incidents ?? []) deps.statusPages.createIncident(made.id, i);
+      } catch { /* a page that cannot be made is left out */ }
     }
     for (const m of deps.monitors.list()) deps.monitors.update(m.id, {}); // restarts each one's schedule
   }

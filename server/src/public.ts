@@ -1,7 +1,7 @@
 import cookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { throttleHit } from "./auth.js";
 import { publicStreamCheck, registerGo2rtcProxy } from "./routes/cameras.js";
@@ -21,7 +21,15 @@ export async function buildPublicApp(d: Deps) {
   app.addHook("onRequest", async (request, reply) => {
     const path = request.url.split("?")[0];
     // The app's front page has no business here: the only page this port serves is a share link.
-    if (path === "/" || path === "/index.html") return reply.code(404).send({ error: "Not found" });
+    if (path === "/" || path === "/index.html") {
+      // Except on a domain you gave a status page: there, the front page is that status page.
+      const host = String(request.headers.host ?? "").replace(/:\d+$/, "").toLowerCase(), index = join(d.config.webDir, "index.html");
+      if (request.method === "GET" && host && existsSync(index) && d.statusPages.domains().has(host) && throttleHit(d.db, `pub:${request.ip}`, 600, 60_000)) {
+        const html = readFileSync(index, "utf8").replace("<head>", '<head><meta name="hb-status-host" content="1">');
+        return reply.header("Content-Type", "text/html; charset=utf-8").header("Cache-Control", "no-store").send(html);
+      }
+      return reply.code(404).send({ error: "Not found" });
+    }
     // Cheap overall limit per address so the share page cannot be used to hammer the server.
     if (!path.startsWith("/go2rtc/") && !throttleHit(d.db, `pub:${request.ip}`, 600, 60_000)) return reply.code(429).send({ error: "Too many requests" });
     if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method) && request.headers["x-homebase"] !== "1") return reply.code(403).send({ error: "Missing request header" });
