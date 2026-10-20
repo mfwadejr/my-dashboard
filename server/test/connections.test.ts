@@ -313,3 +313,11 @@ test("UniFi Network: load-balanced WAN links all count as active, failover keeps
   const failover = nameWans(links, [1, 2, 3].map(n => ({ purpose: "wan", name: `ISP ${n}`, wan_networkgroup: n === 1 ? "WAN" : `WAN${n}`, wan_load_balance_type: "failover-only" })));
   assert.deepEqual(failover.map(w => [w.active, w.balanced]), [[true, undefined], [false, undefined], [false, undefined]]);
 });
+
+test("field catalog: headline numbers survive a very large device record", async () => {
+  const { buildCatalog } = await import("../src/integrations/unificatalog.js");
+  const big = { port_table: Array.from({ length: 24 }, (_, i) => Object.fromEntries(Array.from({ length: 80 }, (_, j) => [`stat_${j}`, i * j]).concat([["name", `p${i}`]]))), general_temperature: 51, temperatures: [{ name: "CPU", type: "cpu", value: 65 }] };
+  const paths = buildCatalog({ devices: { "aa:bb": { label: "Gateway", doc: big } } }).map(f => f.path);
+  assert.ok(paths.includes("devices/aa:bb/general_temperature"));
+  assert.ok(paths.includes("devices/aa:bb/temperatures/0/value"));
+});

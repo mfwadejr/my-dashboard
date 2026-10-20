@@ -13,7 +13,7 @@ export interface PickedValue { path: string; label: string; unit: FieldUnit; val
 
 /** Anything that looks like a secret never goes into the list, whatever the console puts in its answer. */
 const SECRET = /(^x_)|pass|psk|secret|token|auth|key|fingerprint|hash|cert|private|credential|cookie|session|salt|anonymous|controller_id/i;
-const MAX_FIELDS = 4000, MAX_PER_ENTRY = 500, MAX_DEPTH = 4, MAX_ARRAY = 64;
+const MAX_FIELDS = 12000, MAX_PER_ENTRY = 1500, WALK_LIMIT = 20000, MAX_DEPTH = 4, MAX_ARRAY = 64;
 
 export const humanize = (key: string): string => {
   const k = key.replace(/-r$/, "_rate").replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim();
@@ -52,9 +52,10 @@ export function buildCatalog(sources: Record<string, Record<string, { label: str
     if (!entries) continue;
     for (const [id, entry] of Object.entries(entries)) {
       let count = 0;
+      const found: Array<CatalogField & { depth: number }> = [];
       const base = titles[source](entry.label);
       const walk = (node: any, segs: string[], names: string[], depth: number) => {
-        if (out.length >= MAX_FIELDS || count >= MAX_PER_ENTRY) return;
+        if (count >= WALK_LIMIT) return;
         if (Array.isArray(node)) {
           if (depth >= MAX_DEPTH) return;
           node.slice(0, MAX_ARRAY).forEach((el, i) => walk(el, [...segs, String(i)], [...names, elementName(el, i)], depth + 1));
@@ -78,10 +79,13 @@ export function buildCatalog(sources: Record<string, Record<string, { label: str
         // Array positions are named after the element they hold (a port, a radio); other keys use their own name.
         const nameOf = (i: number) => (/^\d+$/.test(segs[i]) ? names[i] : humanize(segs[i]));
         const groupParts = segs.slice(0, -1).map((_, i) => nameOf(i));
-        out.push({ path: [source, id, ...segs].join("/"), group: [base, ...groupParts].join(" › "), label: /^\d+$/.test(leaf) ? names[names.length - 1] : humanize(leaf), kind, unit: guessUnit(leaf, value), value });
+        found.push({ depth: segs.length + Math.max(0, ...segs.filter(x => /^\d+$/.test(x)).map(Number)) / 1000, path: [source, id, ...segs].join("/"), group: [base, ...groupParts].join(" › "), label: /^\d+$/.test(leaf) ? names[names.length - 1] : humanize(leaf), kind, unit: guessUnit(leaf, value), value });
         count++;
       };
       walk(entry.doc, [], [], 0);
+      // Shallow values first, so a long port or radio list can never push the headline numbers (temperature, CPU) out when the entry is large.
+      found.sort((a, b) => a.depth - b.depth);
+      for (const f of found.slice(0, MAX_PER_ENTRY)) { if (out.length >= MAX_FIELDS) break; const { depth: _d, ...field } = f; out.push(field); }
     }
   }
   return out;

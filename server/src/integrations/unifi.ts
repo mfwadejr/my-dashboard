@@ -127,6 +127,12 @@ async function siteInfo(ctx: Ctx): Promise<SiteInfo> {
 async function networkCatalog(ctx: Ctx) {
   const site = await siteInfo(ctx);
   const { sources, notes } = await gatherSources(ctx, site.siteName, new Set(["health", "sysinfo", "devices", "clients"]), 25);
+  // The gateway's own record is what the tile reads (it carries the temperature and per-link numbers), so use it in the list as well.
+  const mac = site.gw?.mac.toLowerCase();
+  if (mac && sources.devices) {
+    const own = await classicDevice(ctx, site.siteName, site.gw!.mac);
+    if (own) sources.devices[mac] = { label: sources.devices[mac]?.label ?? site.gw!.name, doc: { ...(sources.devices[mac]?.doc ?? {}), ...own } };
+  }
   const fields = buildCatalog(sources);
   if (!fields.length) notes.push("The console gave no readable fields. The classic network API may not accept this API key on your version.");
   if (sources.clients) notes.push("Clients: the 25 busiest right now are listed; others can be added once they are active.");
