@@ -155,7 +155,7 @@ function LibraryDialog({ onPick, onClose }: { onPick: (r: Imported) => void; onC
     setBusy("");
   };
   return (
-    <Modal title="Device library" eyebrow="Community pictures (NetBox)" onClose={onClose} wide>
+    <Modal title="Device library" eyebrow="Community pictures" onClose={onClose} wide>
       <div className="form">
         <p className="sub">Searches a community picture library on the internet. The picture you choose is saved on your server as your own copy. Check the library's terms if you share your dashboard publicly.</p>
         <Field label="Library"><select value={source} onChange={e => setSource(e.target.value as "drawio" | "netbox")}><option value="drawio">UniFi drawings (draw.io, community)</option><option value="netbox">NetBox device library (many brands)</option></select></Field>

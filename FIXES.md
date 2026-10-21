@@ -2,6 +2,9 @@
 
 Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 
+## Update57 (true-scale racks)
+- Rack units are drawn in the real 19 x 1.75 inch shape (Normal, default; Large bigger) so pictures are no longer stretched. Compact keeps the old squat overview (pictures look flattened there). Size choice is remembered per browser. Export follows the chosen size.
+
 ## Update56 (UniFi drawings)
 - Device finder now has two libraries: "UniFi drawings" (github.com/vastoholic/draw-io, SVG Files folder; default) and the NetBox library. Drawings are fetched live, cleaned (text labels and light-dark colours removed) and saved as the user's copies; height read from the drawing's shape. Tested against a stub serving the real files, not real GitHub. The repo showed no licence file to me: private use only until checked.
 - Fixed: the finder in update55 read the wrong response shape and would have shown nothing.
