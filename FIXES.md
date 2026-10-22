@@ -2,6 +2,9 @@
 
 Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 
+## Update58
+- Rack size toggle removed: one true-scale view (the former Normal). Pictures default to Stretch; Fit/Fill remain for your own photos.
+
 ## Update57 (true-scale racks)
 - Rack units are drawn in the real 19 x 1.75 inch shape (Normal, default; Large bigger) so pictures are no longer stretched. Compact keeps the old squat overview (pictures look flattened there). Size choice is remembered per browser. Export follows the chosen size.
 

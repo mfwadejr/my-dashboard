@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { usePref } from "../hooks";
 import { DeviceDialog, RackDialog } from "../racks/Dialogs";
-import { RackSvg, SIZES, exportRack, type RackSize } from "../racks/RackSvg";
+import { RackSvg, exportRack } from "../racks/RackSvg";
 import { FACES, fromTyped, kindInfo, liveOf, powerOf, rangeText, toTyped, usedUnits } from "../racks/model";
 import { useNotice } from "../settings/ui";
 import type { AuthUser, IntegrationInfo, RackDeviceInfo, RackInfo, Snapshot } from "../types";
@@ -19,8 +19,6 @@ export function Racks({ me, integrations, snapshots }: { me: AuthUser; integrati
   const [selected, setSelected] = useState<string | null>(null);
   const [dlg, setDlg] = useState<null | { kind: "rack"; edit: boolean } | { kind: "device"; id?: string; at?: number }>(null);
   const [moveTo, setMoveTo] = useState("");
-  const [size, setSizeState] = useState<RackSize>(() => { try { const v = localStorage.getItem("hb-rack-size"); return v === "compact" || v === "large" ? v : "normal"; } catch { return "normal"; } });
-  const setSize = (v: RackSize) => { setSizeState(v); try { localStorage.setItem("hb-rack-size", v); } catch { /* remembering the size is a convenience */ } };
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const load = useCallback(async () => {
@@ -82,9 +80,6 @@ export function Racks({ me, integrations, snapshots }: { me: AuthUser; integrati
             <button className={view === "front" ? "on" : ""} onClick={() => setView("front")}>Front</button>
             <button className={view === "rear" ? "on" : ""} onClick={() => setView("rear")}>Rear</button>
           </div>
-          <div className="seg" role="group" aria-label="Size" title="Normal and Large draw each unit in its true shape. Compact is for an overview; pictures look flattened.">
-            {(Object.keys(SIZES) as RackSize[]).map(k => <button key={k} className={size === k ? "on" : ""} onClick={() => setSize(k)}>{SIZES[k].label}</button>)}
-          </div>
           {admin && <button className="btn" onClick={() => setDlg({ kind: "device" })}>＋ Add equipment</button>}
           {admin && <button className="btn" onClick={() => setDlg({ kind: "rack", edit: true })}>Rack settings</button>}
           <button className="btn" onClick={() => void doExport()}>Export image</button>
@@ -98,7 +93,7 @@ export function Racks({ me, integrations, snapshots }: { me: AuthUser; integrati
 
       {rack && (
         <div className="rackwrap">
-          <div className="rackdraw"><RackSvg size={size} rack={rack} view={view} live={live} selectedId={selected} onSelect={setSelected} admin={admin} onMove={(d, s) => void move(d, s)} onAddAt={u => setDlg({ kind: "device", at: u })} svgRef={svgRef} /></div>
+          <div className="rackdraw"><RackSvg rack={rack} view={view} live={live} selectedId={selected} onSelect={setSelected} admin={admin} onMove={(d, s) => void move(d, s)} onAddAt={u => setDlg({ kind: "device", at: u })} svgRef={svgRef} /></div>
           <aside className="rackside">
             {device ? (
               <section className="rkcard">

@@ -4,11 +4,8 @@ import type { RackDeviceInfo, RackInfo } from "../types";
 import { clashes, kindInfo, onFace, rangeText, unitLabel, type Live } from "./model";
 
 export const POST = 30, HEAD = 34, FOOT = 12;
-/** Size steps: in "normal" and "large" a unit is drawn in the real 19 x 1.75 inch proportion, so pictures are not distorted. */
-export type RackSize = "compact" | "normal" | "large";
-export const SIZES: Record<RackSize, { IN: number; UH: number; label: string }> = {
-  compact: { IN: 22, UH: 24, label: "Compact" }, normal: { IN: 24, UH: 42, label: "Normal" }, large: { IN: 32, UH: 56, label: "Large" }
-};
+/** One size: a unit is drawn in the real 19 x 1.75 inch proportion, so pictures are not distorted. */
+export const IN = 24, UH = 42;
 const trim = (s: string, px: number) => { const max = Math.max(3, Math.floor(px / 6.4)); return s.length > max ? `${s.slice(0, max - 1)}…` : s; };
 
 /** Rows of small marks (ports, outlets) packed into the space from x0 to x1, vertically centred in a plate of height h. */
@@ -77,11 +74,10 @@ function Plate({ d, w, h, view, live }: { d: RackDeviceInfo; w: number; h: numbe
 interface Drag { id: string; startY: number; startSlot: number; moved: boolean; slot: number; ok: boolean }
 
 /** The rack drawn to scale. Administrators drag devices to move them and click an empty unit to add one there. */
-export function RackSvg({ size = "normal", rack, view, live, selectedId, onSelect, admin, onMove, onAddAt, svgRef }: {
-  size?: RackSize; rack: RackInfo; view: "front" | "rear"; live: (d: RackDeviceInfo) => Live; selectedId: string | null; onSelect: (id: string | null) => void; admin: boolean;
+export function RackSvg({ rack, view, live, selectedId, onSelect, admin, onMove, onAddAt, svgRef }: {
+  rack: RackInfo; view: "front" | "rear"; live: (d: RackDeviceInfo) => Live; selectedId: string | null; onSelect: (id: string | null) => void; admin: boolean;
   onMove: (d: RackDeviceInfo, slot: number) => void; onAddAt: (typedU: number) => void; svgRef: RefObject<SVGSVGElement | null>;
 }) {
-  const { IN, UH } = SIZES[size];
   const inner = rack.width * IN, W = inner + POST * 2, H = HEAD + rack.units * UH + FOOT;
   const yOf = (slot: number, units: number) => HEAD + (rack.units - (slot + units - 1)) * UH;
   const [drag, setDrag] = useState<Drag | null>(null);
