@@ -2,6 +2,9 @@
 
 Small fixes and follow-ups, newest first. Move an item to Done when it ships.
 
+## Update59 (simpler Racks)
+- Add equipment starts with "Find in the device library" or "Start blank". The form shows name, type, height, position, picture and the linked connection; mounting, width, watts, colour, rear picture, fit and notes are under More options. Having a picture means it is used (no Look dropdown). Rack dialog: numbering and notes folded. Rack page: "Move to U" removed (drag, click, or Position in the dialog); Rack settings and Add rack are in one "Rack" menu.
+
 ## Update58
 - Rack size toggle removed: one true-scale view (the former Normal). Pictures default to Stretch; Fit/Fill remain for your own photos.
 

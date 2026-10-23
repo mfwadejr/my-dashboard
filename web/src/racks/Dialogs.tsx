@@ -31,8 +31,10 @@ export function RackDialog({ rack, onDone, onClose }: { rack?: RackInfo; onDone:
           <Field label="Width"><select value={f.width} onChange={e => setF({ ...f, width: Number(e.target.value) === 10 ? 10 : 19 })}><option value={19}>19 inch</option><option value={10}>10 inch</option></select></Field>
         </div>
         <datalist id="rack-heights">{HEIGHTS.map(h => <option key={h} value={h} />)}</datalist>
+        <details className="more"><summary>More options</summary>
         <Field label="Numbering"><select value={f.topDown ? "top" : "bottom"} onChange={e => setF({ ...f, topDown: e.target.value === "top" })}><option value="bottom">U1 at the bottom</option><option value="top">U1 at the top</option></select></Field>
         <Field label="Notes"><textarea rows={3} value={f.notes} maxLength={2000} onChange={e => setF({ ...f, notes: e.target.value })} placeholder="Location, circuit, key…" /></Field>
+        </details>
         {n.el}
         <div className="acts">
           <span>{rack && <Confirm label="Delete rack" name="Delete this rack and everything in it" sure="Click again to delete" onGo={() => void remove()} />}</span>
@@ -49,17 +51,20 @@ export function DeviceDialog({ rack, device, startAt, integrations, onDone, onCl
   const n = useNotice();
   const first = KINDS[0];
   const [f, setF] = useState(() => device
-    ? { name: device.name, kind: device.kind, units: device.units, typed: toTyped(rack, device.slot, device.units), face: device.face, width: device.width, color: device.color, ports: device.ports, watts: device.watts === null ? "" : String(device.watts), integrationId: device.integrationId, notes: device.notes, look: device.look, fit: device.fit }
-    : { name: "", kind: first.id as RackKind, units: first.units, typed: startAt ?? 1, face: "both" as RackFace, width: rack.width as 19 | 10, color: "", ports: first.ports, watts: "", integrationId: "", notes: "", look: "drawn" as "drawn" | "image", fit: "stretch" as "stretch" | "fit" | "fill" });
+    ? { name: device.name, kind: device.kind, units: device.units, typed: toTyped(rack, device.slot, device.units), face: device.face, width: device.width, color: device.color, ports: device.ports, watts: device.watts === null ? "" : String(device.watts), integrationId: device.integrationId, notes: device.notes, fit: device.fit }
+    : { name: "", kind: first.id as RackKind, units: first.units, typed: startAt ?? 1, face: "both" as RackFace, width: rack.width as 19 | 10, color: "", ports: first.ports, watts: "", integrationId: "", notes: "", fit: "stretch" as "stretch" | "fit" | "fill" });
   const [icon, setIcon] = useState({ icon: device?.icon ?? "", iconRef: device?.iconRef ?? "" });
   const [rear, setRear] = useState({ icon: device?.rearIcon ?? "", iconRef: device?.rearIconRef ?? "" });
   const [finder, setFinder] = useState(false);
+  // A new piece of equipment starts by choosing how to begin: from a library picture, or blank.
+  const [started, setStarted] = useState(Boolean(device));
   const [busy, setBusy] = useState(false);
   const info = kindInfo(f.kind);
+  const hasPicture = Boolean(icon.icon || rear.icon);
   const pick = (kind: RackKind) => { const k = kindInfo(kind); setF({ ...f, kind, ports: k.ports, units: device ? f.units : k.units, name: f.name || (kind === "blank" ? "Blank" : "") }); };
   const save = async () => {
     setBusy(true); n.clear();
-    const body = { name: f.name, kind: f.kind, units: f.units, slot: fromTyped(rack, f.typed, f.units), face: f.face, width: f.width, color: f.color, ports: f.ports, watts: f.watts === "" ? null : Number(f.watts), integrationId: f.integrationId, notes: f.notes, look: f.look, fit: f.fit, icon: icon.icon, iconRef: icon.iconRef, rearIcon: rear.icon, rearIconRef: rear.iconRef };
+    const body = { name: f.name, kind: f.kind, units: f.units, slot: fromTyped(rack, f.typed, f.units), face: f.face, width: f.width, color: f.color, ports: f.ports, watts: f.watts === "" ? null : Number(f.watts), integrationId: f.integrationId, notes: f.notes, look: hasPicture ? "image" : "drawn", fit: f.fit, icon: icon.icon, iconRef: icon.iconRef, rearIcon: rear.icon, rearIconRef: rear.iconRef };
     try {
       const d = device ? await api.put<RackDeviceInfo>(`/api/racks/devices/${device.id}`, body) : await api.post<RackDeviceInfo>(`/api/racks/${rack.id}/devices`, body);
       onDone(d.id);
@@ -67,6 +72,26 @@ export function DeviceDialog({ rack, device, startAt, integrations, onDone, onCl
     setBusy(false);
   };
   const remove = async () => { if (!device) return; try { await api.del(`/api/racks/devices/${device.id}`); onDone(""); } catch (e) { n.bad(e); } };
+  const picked = (r: Imported) => {
+    setFinder(false); setStarted(true);
+    setIcon(r.front ?? { icon: "", iconRef: "" }); setRear(r.rear ?? { icon: "", iconRef: "" });
+    const kind: RackKind = (r.ports ?? 0) >= 8 ? "switch" : f.kind;
+    setF({ ...f, name: f.name || r.name, units: r.units ? Math.max(1, Math.min(rack.units, r.units)) : f.units, face: r.fullDepth === false ? "front" : f.face, kind, ports: r.ports || f.ports });
+  };
+  if (!started) {
+    return (
+      <Modal title="Add equipment" eyebrow={rack.name} onClose={onClose}>
+        <div className="form">
+          <p className="sub">How would you like to start?</p>
+          <div className="rk-start">
+            <button type="button" className="btn pri" onClick={() => setFinder(true)}>Find in the device library</button>
+            <button type="button" className="btn" onClick={() => setStarted(true)}>Start blank</button>
+          </div>
+        </div>
+        {finder && <LibraryDialog onClose={() => setFinder(false)} onPick={picked} />}
+      </Modal>
+    );
+  }
   return (
     <Modal title={device ? "Edit equipment" : "Add equipment"} eyebrow={rack.name} onClose={onClose} wide>
       <form className="form" onSubmit={e => { e.preventDefault(); void save(); }}>
@@ -76,44 +101,41 @@ export function DeviceDialog({ rack, device, startAt, integrations, onDone, onCl
         </div>
         <div className="row2">
           <Field label="Height (U)"><input type="number" min={1} max={rack.units} value={f.units} onChange={e => setF({ ...f, units: Number(e.target.value) })} /></Field>
-          <Field label="Position (U)" hint={`The lowest unit number it covers, on this rack's numbering (U1 is at the ${rack.topDown ? "top" : "bottom"}).`}><input type="number" min={1} max={rack.units} value={f.typed} onChange={e => setF({ ...f, typed: Number(e.target.value) })} /></Field>
+          <Field label="Position (U)" hint={`The lowest unit it covers (U1 is at the ${rack.topDown ? "top" : "bottom"}).`}><input type="number" min={1} max={rack.units} value={f.typed} onChange={e => setF({ ...f, typed: Number(e.target.value) })} /></Field>
         </div>
-        <div className="row2">
-          <Field label="Mounting" hint="Half-depth equipment on opposite sides can share the same units."><select value={f.face} onChange={e => setF({ ...f, face: e.target.value as RackFace })}>{FACES.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}</select></Field>
-          <Field label="Width" hint={f.width > rack.width ? "Wider than this rack: it will be drawn with a warning." : undefined}><select value={f.width} onChange={e => setF({ ...f, width: Number(e.target.value) === 10 ? 10 : 19 })}><option value={19}>19 inch</option><option value={10}>10 inch</option></select></Field>
-        </div>
-        <div className="row2">
-          {info.unit ? <Field label={`Number of ${info.unit}`}><input type="number" min={0} max={96} value={f.ports} onChange={e => setF({ ...f, ports: Number(e.target.value) })} /></Field> : <span />}
-          <Field label="Typical power draw (watts)" hint="Optional. Used for the rack's total when no linked power strip reports live watts."><input type="number" min={0} max={100000} value={f.watts} onChange={e => setF({ ...f, watts: e.target.value })} /></Field>
-        </div>
-        <Field label="Colour">
-          <div className="row g8" role="group" aria-label="Colour">
-            <button type="button" className={`rk-sw none ${f.color === "" ? "on" : ""}`} aria-label="No colour" onClick={() => setF({ ...f, color: "" })}>–</button>
-            {["1", "2", "3", "4", "5", "6"].map(c => <button key={c} type="button" className={`rk-sw c${c} ${f.color === c ? "on" : ""}`} aria-label={`Colour ${c}`} onClick={() => setF({ ...f, color: c })} />)}
+        <Field label="Picture" hint={hasPicture ? undefined : "Optional. Without one, Homebase draws the equipment for you."}>
+          <div className="row g8 wrapme">
+            <IconButton icon={icon.icon} iconRef={icon.iconRef} name={f.name || "Picture"} size={32} label="Upload or choose the front picture" onChange={v => setIcon(v)} />
+            <button type="button" className="btn" onClick={() => setFinder(true)}>Find in library…</button>
+            {hasPicture && <button type="button" className="btn" onClick={() => { setIcon({ icon: "", iconRef: "" }); setRear({ icon: "", iconRef: "" }); }}>Remove picture</button>}
           </div>
         </Field>
-        <Field label="Linked connection" hint="Shows whether it is online, and a linked power strip's live watts. Optional."><select value={f.integrationId} onChange={e => setF({ ...f, integrationId: e.target.value })}><option value="">None</option>{integrations.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select></Field>
-        <Field label="Look" hint="Homebase can draw the equipment, or show your own pictures: the front picture on the front view and the rear picture on the rear view. Pictures are saved on your server.">
-          <div className="row g8">
-            <select value={f.look} onChange={e => setF({ ...f, look: e.target.value as "drawn" | "image" })}><option value="drawn">Drawn by Homebase</option><option value="image">My pictures</option></select>
-            {f.look === "image" && <button type="button" className="btn" onClick={() => setFinder(true)}>Find in the device library…</button>}
-          </div>
-        </Field>
-        {f.look === "image" && <>
+        {integrations.length > 0 && <Field label="Linked connection" hint="Shows whether it is online, and a linked power strip's live watts."><select value={f.integrationId} onChange={e => setF({ ...f, integrationId: e.target.value })}><option value="">None</option>{integrations.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select></Field>}
+        <details className="more"><summary>More options</summary>
           <div className="row2">
-            <Field label="Front picture"><div className="row g8"><IconButton icon={icon.icon} iconRef={icon.iconRef} name={f.name || "Front"} size={32} label="Choose the front picture" onChange={v => setIcon(v)} /><span className="sub">{icon.icon ? "Chosen" : "Upload, or an image address"}</span></div></Field>
-            <Field label="Rear picture"><div className="row g8"><IconButton icon={rear.icon} iconRef={rear.iconRef} name={f.name || "Rear"} size={32} label="Choose the rear picture" onChange={v => setRear(v)} /><span className="sub">{rear.icon ? "Chosen" : "Optional. The rear is drawn without one"}</span></div></Field>
+            <Field label="Mounting" hint="Half-depth equipment on opposite sides can share the same units."><select value={f.face} onChange={e => setF({ ...f, face: e.target.value as RackFace })}>{FACES.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}</select></Field>
+            <Field label="Width" hint={f.width > rack.width ? "Wider than this rack: it will be drawn with a warning." : undefined}><select value={f.width} onChange={e => setF({ ...f, width: Number(e.target.value) === 10 ? 10 : 19 })}><option value={19}>19 inch</option><option value={10}>10 inch</option></select></Field>
           </div>
-          <Field label="Picture fit" hint="Stretch fills the slot exactly. Fit keeps the picture's shape. Fill keeps the shape and crops the edges."><select value={f.fit} onChange={e => setF({ ...f, fit: e.target.value as "stretch" | "fit" | "fill" })}><option value="stretch">Stretch to the slot</option><option value="fit">Fit, keeping its shape</option><option value="fill">Fill, cropping the edges</option></select></Field>
-        </>}
-        <Field label="Notes"><textarea rows={3} value={f.notes} maxLength={2000} onChange={e => setF({ ...f, notes: e.target.value })} placeholder="Serial, asset tag, address, warranty…" /></Field>
+          <div className="row2">
+            {info.unit && !hasPicture ? <Field label={`Number of ${info.unit}`}><input type="number" min={0} max={96} value={f.ports} onChange={e => setF({ ...f, ports: Number(e.target.value) })} /></Field> : <span />}
+            <Field label="Typical power draw (watts)" hint="Used for the rack total when no linked power strip reports live watts."><input type="number" min={0} max={100000} value={f.watts} onChange={e => setF({ ...f, watts: e.target.value })} /></Field>
+          </div>
+          <Field label="Colour">
+            <div className="row g8" role="group" aria-label="Colour">
+              <button type="button" className={`rk-sw none ${f.color === "" ? "on" : ""}`} aria-label="No colour" onClick={() => setF({ ...f, color: "" })}>–</button>
+              {["1", "2", "3", "4", "5", "6"].map(c => <button key={c} type="button" className={`rk-sw c${c} ${f.color === c ? "on" : ""}`} aria-label={`Colour ${c}`} onClick={() => setF({ ...f, color: c })} />)}
+            </div>
+          </Field>
+          {hasPicture && <>
+            <div className="row2">
+              <Field label="Rear picture"><div className="row g8"><IconButton icon={rear.icon} iconRef={rear.iconRef} name={f.name || "Rear"} size={32} label="Upload or choose the rear picture" onChange={v => setRear(v)} /><span className="sub">{rear.icon ? "Chosen" : "Optional. The rear is drawn without one"}</span></div></Field>
+              <Field label="Picture fit" hint="Stretch fills the slot. Fit keeps the picture's shape. Fill crops the edges."><select value={f.fit} onChange={e => setF({ ...f, fit: e.target.value as "stretch" | "fit" | "fill" })}><option value="stretch">Stretch</option><option value="fit">Fit</option><option value="fill">Fill</option></select></Field>
+            </div>
+          </>}
+          <Field label="Notes"><textarea rows={3} value={f.notes} maxLength={2000} onChange={e => setF({ ...f, notes: e.target.value })} placeholder="Serial, asset tag, address, warranty…" /></Field>
+        </details>
         {n.el}
-        {finder && <LibraryDialog onClose={() => setFinder(false)} onPick={r => {
-          setFinder(false);
-          setIcon(r.front ?? { icon: "", iconRef: "" }); setRear(r.rear ?? { icon: "", iconRef: "" });
-          const kind: RackKind = (r.ports ?? 0) >= 8 ? "switch" : f.kind;
-          setF({ ...f, look: "image", name: f.name || r.name, units: r.units ? Math.max(1, Math.min(rack.units, r.units)) : f.units, face: r.fullDepth === false ? "front" : f.face, kind, ports: r.ports || f.ports });
-        }} />}
+        {finder && <LibraryDialog onClose={() => setFinder(false)} onPick={picked} />}
         <div className="acts">
           <span>{device && <Confirm label="Remove" name="Remove this equipment from the rack" sure="Click again to remove" onGo={() => void remove()} />}</span>
           <span className="acts-right"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn pri" disabled={busy || !f.name.trim()}>Save</button></span>
@@ -122,7 +144,6 @@ export function DeviceDialog({ rack, device, startAt, integrations, onDone, onCl
     </Modal>
   );
 }
-
 
 interface Imported { name: string; units: number | null; fullDepth: boolean | null; ports: number | null; front: { icon: string; iconRef: string } | null; rear: { icon: string; iconRef: string } | null }
 

@@ -3,7 +3,7 @@ import { api } from "../api";
 import { usePref } from "../hooks";
 import { DeviceDialog, RackDialog } from "../racks/Dialogs";
 import { RackSvg, exportRack } from "../racks/RackSvg";
-import { FACES, fromTyped, kindInfo, liveOf, powerOf, rangeText, toTyped, usedUnits } from "../racks/model";
+import { FACES, kindInfo, liveOf, powerOf, rangeText, usedUnits } from "../racks/model";
 import { useNotice } from "../settings/ui";
 import type { AuthUser, IntegrationInfo, RackDeviceInfo, RackInfo, Snapshot } from "../types";
 import { Pill } from "../widgets/common";
@@ -18,7 +18,6 @@ export function Racks({ me, integrations, snapshots }: { me: AuthUser; integrati
   const [view, setView] = usePref<"front" | "rear">("hb_rackface", "front");
   const [selected, setSelected] = useState<string | null>(null);
   const [dlg, setDlg] = useState<null | { kind: "rack"; edit: boolean } | { kind: "device"; id?: string; at?: number }>(null);
-  const [moveTo, setMoveTo] = useState("");
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const load = useCallback(async () => {
@@ -31,17 +30,10 @@ export function Racks({ me, integrations, snapshots }: { me: AuthUser; integrati
   const device = rack?.devices.find(d => d.id === selected) ?? null;
   const live = (d: RackDeviceInfo) => liveOf(d, integrations, snapshots);
   const power = useMemo(() => (rack ? powerOf(rack, integrations, snapshots) : null), [rack, integrations, snapshots]);
-  useEffect(() => { setMoveTo(device && rack ? String(toTyped(rack, device.slot, device.units)) : ""); }, [device?.id, device?.slot, rack?.id, rack?.topDown, rack?.units]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const move = async (d: RackDeviceInfo, slot: number) => {
     n.clear();
     try { await api.put(`/api/racks/devices/${d.id}`, { slot }); await load(); } catch (e) { n.bad(e); await load(); }
-  };
-  const typedMove = async () => {
-    if (!device || !rack) return;
-    const t = Math.round(Number(moveTo));
-    if (!Number.isFinite(t)) return;
-    await move(device, fromTyped(rack, t, device.units));
   };
   const doExport = async () => {
     if (!svgRef.current || !rack) return;
@@ -73,7 +65,6 @@ export function Racks({ me, integrations, snapshots }: { me: AuthUser; integrati
       <div className="rackbar">
         <div className="rackchips" role="tablist" aria-label="Racks">
           {racks.map(r => <button key={r.id} role="tab" aria-selected={r.id === rack?.id} className={`chip ${r.id === rack?.id ? "on" : ""}`} onClick={() => { setPickedId(r.id); setSelected(null); }}>{r.name}</button>)}
-          {admin && <button className="chip add" onClick={() => setDlg({ kind: "rack", edit: false })}>＋ Add rack</button>}
         </div>
         {rack && <div className="row g8 wrapme">
           <div className="seg" role="group" aria-label="Side">
@@ -81,8 +72,8 @@ export function Racks({ me, integrations, snapshots }: { me: AuthUser; integrati
             <button className={view === "rear" ? "on" : ""} onClick={() => setView("rear")}>Rear</button>
           </div>
           {admin && <button className="btn" onClick={() => setDlg({ kind: "device" })}>＋ Add equipment</button>}
-          {admin && <button className="btn" onClick={() => setDlg({ kind: "rack", edit: true })}>Rack settings</button>}
           <button className="btn" onClick={() => void doExport()}>Export image</button>
+          {admin && <RackMenu canEdit onAdd={() => setDlg({ kind: "rack", edit: false })} onEdit={() => setDlg({ kind: "rack", edit: true })} />}
         </div>}
       </div>
       {n.el}
@@ -108,10 +99,6 @@ export function Racks({ me, integrations, snapshots }: { me: AuthUser; integrati
                 </dl>
                 {device.notes && <p className="rknotes">{device.notes}</p>}
                 {admin && <>
-                  <div className="row g8 wrapme">
-                    <label className="rkmove">Move to U <input type="number" min={1} max={rack.units} value={moveTo} onChange={e => setMoveTo(e.target.value)} onKeyDown={e => { if (e.key === "Enter") void typedMove(); }} /></label>
-                    <button className="btn sm" onClick={() => void typedMove()}>Move</button>
-                  </div>
                   <div className="row g8"><button className="btn" onClick={() => setDlg({ kind: "device", id: device.id })}>Edit</button></div>
                 </>}
               </section>
@@ -138,5 +125,24 @@ export function Racks({ me, integrations, snapshots }: { me: AuthUser; integrati
       {dlg?.kind === "rack" && <RackDialog rack={dlg.edit ? rack : undefined} onClose={() => setDlg(null)} onDone={async id => { setDlg(null); await load(); if (id) setPickedId(id); else setPickedId(""); }} />}
       {dlg?.kind === "device" && rack && <DeviceDialog rack={rack} device={dlg.id ? rack.devices.find(d => d.id === dlg.id) : undefined} startAt={dlg.at} integrations={integrations} onClose={() => setDlg(null)} onDone={async id => { setDlg(null); await load(); setSelected(id || null); }} />}
     </div>
+  );
+}
+
+/** One small menu for the rack itself: add another rack, or change this one. */
+function RackMenu({ onAdd, onEdit }: { canEdit?: boolean; onAdd: () => void; onEdit: () => void }) {
+  const ref = useRef<HTMLDetailsElement | null>(null);
+  const go = (fn: () => void) => () => { if (ref.current) ref.current.open = false; fn(); };
+  useEffect(() => {
+    const away = (e: MouseEvent) => { if (ref.current?.open && !ref.current.contains(e.target as Node)) ref.current.open = false; };
+    document.addEventListener("click", away); return () => document.removeEventListener("click", away);
+  }, []);
+  return (
+    <details className="rkmenu" ref={ref}>
+      <summary className="btn" aria-label="Rack options">Rack ▾</summary>
+      <div className="rkmenu-list" role="menu">
+        <button role="menuitem" onClick={go(onEdit)}>Rack settings…</button>
+        <button role="menuitem" onClick={go(onAdd)}>Add another rack…</button>
+      </div>
+    </details>
   );
 }
